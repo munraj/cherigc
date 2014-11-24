@@ -1,26 +1,24 @@
 .include "cheridefs.mk"
-LD=$(CC)
-LDFLAGS=
-OBJS=
-TESTOBJS=test/test.o
+OBJS=gc.o
 
-all: test
-
-.PHONY: all clean lib test push
+.PHONY: all clean lib test push gctest
+all: gctest
 lib: libcherigc.a
-test: test/gctest
 
-.c.o: $<
+.c.o:
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 libcherigc.a: $(OBJS)
 	$(AR) -r libcherigc.a $(OBJS)
 
-test/gctest: libcherigc.a $(TESTOBJS)
-	$(LD) $(LDFLAGS) -o test/gctest libcherigc.a $(TESTOBJS)
+gctest: libcherigc.a
+	cd test && $(MAKE)
 
-push:
+push: gctest
 	$(CHERI_PUSH) test/gctest $(CHERI_PUSH_DIR)/gctest
 
 clean:
-	rm -f *.o *.a test/*.o test/gctest
+	rm -f *.o *.a test/*.o
+	cd test && $(MAKE) clean
+
+gc.o: gc.c gc.h
