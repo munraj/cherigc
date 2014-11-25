@@ -1,5 +1,9 @@
 #include <gc.h>
+#include <gc_scan.h>
 #include <stdio.h>
+
+#include <machine/cheri.h>
+#include <machine/cheric.h>
 
 int main ()
 {
@@ -17,6 +21,21 @@ int main ()
   printf("c: %s\n", gc_cap_str(c));
   printf("d: %s\n", gc_cap_str(d));
   printf("e: %s\n", gc_cap_str(e));
+  struct
+  {
+    char stuff[32*20];
+  } s;
+
+#define ALIGN32(p) ((void*) (((uintptr_t)(p)+(uintptr_t)31)&~(uintptr_t)31))
+
+  /* store a capability in a struct */
+  __gc_capability void ** store = (void*)ALIGN32(&s);
+  printf("store: %p, s: %p\n", store,&s);
+  store[10] = a;
+
+  size_t len = sizeof s - ((uintptr_t)store-(uintptr_t)&s);
+  printf("len: %zu, sizeof s: %zu\n", len, sizeof s);
+  gc_scan_region(gc_cheri_ptr(store, len));
 	return 0;
 }
 

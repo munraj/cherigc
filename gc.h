@@ -12,6 +12,22 @@
 void gc_init (void);
 __gc_capability void * gc_malloc (size_t sz);
 void gc_free (__gc_capability void * ptr);
+
+
+/*
+ * Immediately revoke all access to the given capability.
+ * This requires finding all outstanding references and invalidating
+ * them before returning the object to the memory pool.
+ */
+void gc_revoke (__gc_capability void * ptr);
+
+/*
+ * Eventually re-use the given capability.
+ * This returns the capability to the memory pool only when the last
+ * reference to it is deleted.
+ */
+void gc_reuse (__gc_capability void * ptr);
+
 __gc_capability void * gc_alloc_internal (size_t sz);
 
 struct gc_state_s

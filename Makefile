@@ -1,5 +1,5 @@
 .include "cheridefs.mk"
-OBJS=gc.o
+OBJS=gc.o gc_scan.o
 
 .PHONY: all clean lib test push gctest
 all: gctest
@@ -21,4 +21,5 @@ clean:
 	rm -f *.o *.a test/*.o
 	cd test && $(MAKE) clean
 
-gc.o: gc.c gc.h
+gc.o: gc.c gc.h gc_scan.h
+gc_scan.o: gc_scan.c gc_scan.h gc.h
