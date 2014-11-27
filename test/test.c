@@ -10,9 +10,9 @@ int main ()
   gc_init();
 	printf("gc test\n");
   __gc_capability void * ptr = gc_malloc(100);
-  __gc_capability void * a = gc_malloc(1000);
-  __gc_capability void * b = gc_malloc(20000);
-  __gc_capability void * c = gc_malloc(65536-100-1000-20000);
+  __gc_capability void * a = gc_malloc(4000);
+  __gc_capability void * b = gc_malloc(3092);
+  __gc_capability void * c = gc_malloc(2909);
   __gc_capability void * d = gc_malloc(1);
   __gc_capability void * e = gc_malloc(0);
   printf("ptr: %s\n", gc_cap_str(ptr));

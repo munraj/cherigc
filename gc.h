@@ -5,10 +5,11 @@
 #include <stdlib.h>
 
 #define __gc_capability __capability
-#define gc_cheri_ptr		cheri_ptr
 #define gc_cheri_getbase		cheri_getbase
-#define gc_cheri_getoffset		cheri_getoffset
 #define gc_cheri_getlen		cheri_getlen
+#define gc_cheri_getoffset		cheri_getoffset
+#define gc_cheri_incbase		cheri_incbase
+#define gc_cheri_ptr		cheri_ptr
 #define gc_cheri_setlen		cheri_setlen
 
 void gc_init (void);
@@ -38,9 +39,12 @@ __gc_capability void * gc_alloc_internal (size_t sz);
  * The collector deals with blocks of size GC_BIGSZ, requesting from
  * the operating system memory chunks of size GC_BIGSZ or bigger.
  *
- * Each block contains a metadata structure at the beginning (GC_blk),
- * followed by actual data. The metadata structure implements a
- * linked list.
+ * Each data block is pointed to by a metadata structure (GC_blk). The
+ * metadata structure implements a linked list. The metadata
+ * structures themselves are stored in data blocks. To manage these
+ * blocks, the first metadata structure in each metadata block points
+ * to the next metadata block, or none. The metadata blocks are never
+ * collected.
  *
  * For allocation requests of size >= GC_BIGSZ, the heap_free list is
  * first checked for the requested size. If a free block large enough
@@ -74,7 +78,7 @@ __gc_capability void * gc_alloc_internal (size_t sz);
  */ 
 #define GC_LOG_BIGSZ	 (13)
 #define GC_BIGSZ	 		 ((size_t) (1 << GC_LOG_BIGSZ))
-#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-5)
+#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-6)
 #define GC_MINSZ		   ((size_t) (1 << GC_LOG_MINSZ))
 
 /*
@@ -105,37 +109,37 @@ __gc_capability void * gc_alloc_internal (size_t sz);
 typedef struct gc_blk_s
 {
 	/*
+   * Pointer to the data contents of this block.
+	 */
+	__gc_capability void * data;
+	
+	/*
    * The next and previous blocks in the list.
    */
 	__gc_capability struct gc_blk_s * next, * prev;
 
 	/*
    * The size of this block, always >= GC_BIGSZ.
-	 * This header is included in the size count.
 	 */
 	size_t sz;
 
   /*
    * The size of objects stored in this block.
-	 * Value undefined when block is on free list.
    */
 	size_t objsz;
 
 	/*
    * The mark bits for each object in this block.
 	 * Just 1 or 0 when only one object is stored.
-	 * Value undefined when block is on free list.
    */
 	uint64_t marks;
 
 	/*
-   * The free bits for each object in this block.
-	 * Value undefined when block is on free list.
+	 * The free bits for each object in this block.
 	 */
 	uint64_t free;
 } gc_blk;
-#define GC_BLK_HDRSZ GC_ROUND_ALIGN(sizeof(gc_blk))
-
+#define GC_BLK_HDRSZ sizeof(gc_blk)
 
 struct gc_state_s
 {

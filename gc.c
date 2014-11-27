@@ -44,7 +44,7 @@ gc_first_bit (uint64_t x)
   x = (x^(x-1)) >> 1; /* set trailing 0s to 1s and zero rest */
   for (c=0; x; c++)
     x>>=1;
-  return c-1;
+  return c;
 }
 
 void
@@ -89,7 +89,7 @@ gc_find_free (__gc_capability gc_blk * list, size_t sz)
 {
   __gc_capability gc_blk * blk;
   for (blk=list; blk; blk=blk->next)
-    if (blk->sz - GC_BLK_HDRSZ > sz)
+    if (blk->sz >= sz)
       return blk;
   return NULL;
 }
@@ -101,18 +101,25 @@ gc_malloc (size_t sz)
   __gc_capability gc_blk * blk;
   __gc_capability gc_blk * free_blk;
   size_t remaining, roundsz, logsz;
-  int indx;
+  int indx, hdrbits;
+  ptr = NULL;
   gc_debug("external allocator: %zu bytes requested",
     sz);
-  if (sz >= GC_BIGSZ - GC_BLK_HDRSZ)
+  if (sz >= GC_BIGSZ)
   {
     roundsz = GC_ROUND_ALIGN(sz);
-    gc_debug("allocation size %zu is greater than GC_BIGSZ - GC_BLK_HDRSZ",
+    gc_debug("allocation size %zu is greater than GC_BIGSZ",
       sz);
     blk = gc_find_free(gc_state->heap_free, sz);
     if (!blk)
     {
+      /* allocate new block */
       blk = gc_alloc_internal(roundsz + GC_BLK_HDRSZ);
+      if (!blk)
+      {
+        gc_error("gc_alloc_internal(%zu) failed", GC_BIGSZ);
+        return NULL;
+      }
       blk->sz = roundsz + GC_BLK_HDRSZ;
       gc_debug("allocated new block: %s", gc_cap_str(blk));
     }
@@ -140,11 +147,10 @@ gc_malloc (size_t sz)
       gc_ins_blk(free_blk,
         (__gc_capability gc_blk **) &gc_state->heap_free);
     }
-    ptr = (__gc_capability void*) ((__gc_capability char *) blk +
-      GC_BLK_HDRSZ);
+    ptr = gc_cheri_incbase(blk, GC_BLK_HDRSZ);
     ptr = gc_cheri_setlen(ptr, sz);
   }
-  else
+  else if (GC_ROUND_POW2(sz) >= GC_MINSZ)
   {
     roundsz = GC_ROUND_POW2(sz);
     logsz = GC_LOG2(roundsz);
@@ -155,10 +161,41 @@ gc_malloc (size_t sz)
     {
       if (blk->free)
       {
-        indx = GC_FIRST_BIT(blk->free);
-        /* TODO: the rest of this...*/
+        gc_debug("found free block: %s", gc_cap_str(blk));
+        break;
       }
     }
+    if (!blk)
+    {
+      /* allocate a new block */
+      blk = gc_alloc_internal(GC_BIGSZ);
+      if (!blk)
+      {
+        gc_error("gc_alloc_internal(%zu) failed", GC_BIGSZ + GC_BLK_HDRSZ);
+        return NULL;
+      }
+      blk->sz = GC_BIGSZ + GC_BLK_HDRSZ;
+      gc_debug("allocated new block: %s", gc_cap_str(blk));
+      blk->objsz = roundsz;
+      blk->marks = 0; 
+      blk->free = ((1ULL << (GC_BIGSZ / roundsz)) - 1ULL);
+      /* account for the space taken up by the block header */
+      //hdrbits = (GC_BLK_HDRSZ + roundsz - 1) / roundsz;
+      //blk->free &= ~((1ULL << hdrbits) - 1ULL);
+      gc_debug("free bits: 0x%llx, shifted: 0x%llx", blk->free, 1ULL<<(GC_BIGSZ/roundsz));
+      gc_ins_blk(blk,
+        (__gc_capability gc_blk **) &gc_state->heap[logsz]);
+    }
+    indx = GC_FIRST_BIT(blk->free);
+    gc_debug("first free index: %d", indx);
+    blk->free &= ~(1ULL << indx);
+    ptr = gc_cheri_incbase(blk, indx*roundsz);
+    ptr = gc_cheri_setlen(ptr, sz);
+  }
+  else
+  {
+    gc_error("external allocator: unhandled size: %zu < GC_MINSZ (%zu)\n",
+      sz, GC_MINSZ);
   }
   gc_debug("external allocator: returning %s",
     gc_cap_str(ptr));
