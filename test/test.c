@@ -15,19 +15,25 @@ int main ()
   int i;
   for (i=0; i<15; i++)
   {
-    fprintf(stderr, "alloc: %s\n", gc_cap_str(gc_malloc(1024+i)));
+    __gc_capability void * x = gc_malloc(320000+i);
+    __gc_capability gc_blk * y=NULL;
+    size_t indx=0;
+    int error = gc_get_block(&gc_state->mtbl, &y, &indx, x);
+    fprintf(stderr, "alloc: %s\n", gc_cap_str(x));
+    fprintf(stderr, "get_block: %d, %s, %zu\n", error, gc_cap_str(y),indx);
+    gc_set_mark(x);
     fprintf(stderr, "small mtbl:\n");
-    gc_print_map(gc_state->mtbl, GC_PAGESZ);
+    gc_print_map(&gc_state->mtbl);
     fprintf(stderr, "big mtbl:\n");
-    gc_print_map(gc_state->mtbl_big, GC_BIGSZ);
+    gc_print_map(&gc_state->mtbl_big);
   }
   for (i=0; i<15; i++)
   {
     printf("alloc: %s\n", gc_cap_str(gc_malloc(100+i)));
     printf("small mtbl:\n");
-    gc_print_map(gc_state->mtbl, GC_PAGESZ);
-    printf("big mtbl:\n");
-    gc_print_map(gc_state->mtbl_big, GC_BIGSZ);
+    gc_print_map(&gc_state->mtbl);
+    //fprintf(stderr, "big mtbl:\n");
+    //gc_print_map(&gc_state->mtbl_big);
   }
   __gc_capability void * c = gc_malloc(2909);
   __gc_capability void * d = gc_malloc(1);
