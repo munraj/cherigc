@@ -16,7 +16,6 @@ void gc_init (void);
 __gc_capability void * gc_malloc (size_t sz);
 void gc_free (__gc_capability void * ptr);
 
-
 /*
  * Immediately revoke all access to the given capability.
  * This requires finding all outstanding references and invalidating
@@ -36,34 +35,6 @@ __gc_capability void * gc_alloc_internal (size_t sz);
 #define GC_INIT_HEAPSZ ((size_t) (64*1024))
 
 /*
- * The collector deals with blocks of size GC_BIGSZ, requesting from
- * the operating system memory chunks of size GC_BIGSZ or bigger.
- *
- * Each data block is pointed to by a metadata structure (GC_blk). The
- * metadata structure implements a linked list. The metadata
- * structures themselves are stored in data blocks. To manage these
- * blocks, the first metadata structure in each metadata block points
- * to the next metadata block, or none. The metadata blocks are never
- * collected.
- *
- * For allocation requests of size >= GC_BIGSZ, the heap_free list is
- * first checked for the requested size. If a free block large enough
- * is found, the block is allocated. The block is split if at least
- * GC_BIGSZ bytes will remain after splitting; otherwise, the entire
- * block is allocated. 
- *
- * The allocated block is added to the heap_big list and the remaining
- * free data, if any, is returned to the heap_free list.
- *
- * For smaller allocations, the size is rounded up to the nearest
- * power of two (say x) and is made from the gc_state->heap[x] block
- * list. The gc_blk header keeps track of how much space is free
- * in each gc_state->heap[x] block. If no block contains a free slot,
- * a new block is allocated from the heap_free list.
- *
- */
-
-/*
  * GC_BIGSZ
  * Size of a "big" block. Any allocation request from the client of
  * size >= GC_BIGSZ is allocated as one new chunk from the OS, and
@@ -76,7 +47,7 @@ __gc_capability void * gc_alloc_internal (size_t sz);
  * from the relevant heap[] list, but the mark bits are only accurate
  * to a granularity of GC_MINSZ.
  */ 
-#define GC_LOG_BIGSZ	 (13)
+#define GC_LOG_BIGSZ	 (10)
 #define GC_BIGSZ	 		 ((size_t) (1 << GC_LOG_BIGSZ))
 #define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-6)
 #define GC_MINSZ		   ((size_t) (1 << GC_LOG_MINSZ))
@@ -109,19 +80,9 @@ __gc_capability void * gc_alloc_internal (size_t sz);
 typedef struct gc_blk_s
 {
 	/*
-   * Pointer to the data contents of this block.
-	 */
-	__gc_capability void * data;
-	
-	/*
    * The next and previous blocks in the list.
    */
 	__gc_capability struct gc_blk_s * next, * prev;
-
-	/*
-   * The size of this block, always >= GC_BIGSZ.
-	 */
-	size_t sz;
 
   /*
    * The size of objects stored in this block.
@@ -141,11 +102,35 @@ typedef struct gc_blk_s
 } gc_blk;
 #define GC_BLK_HDRSZ sizeof(gc_blk)
 
+
+#define GC_LOG_PAGESZ			12
+#define GC_PAGESZ					((size_t)1 << GC_LOG_PAGESZ)
+#define GC_PAGEMASK				(((uintptr_t)1 << GC_LOG_PAGESZ)-(uintptr_t)1)
+
+#define GC_MTBL_MAP_SZ		(GC_PAGESZ - sizeof(__gc_capability void*))
+#define GC_PAGES_PER_MTBL	(GC_MTBL_MAP_SZ * (size_t)4)
+
+/* master block table */
+typedef struct gc_mtbl_s
+{
+	__gc_capability void * base;
+
+	/*
+   * Two-bit entry for each page from the base.
+	 * 0b00: page free
+	 * 0b01: contains block header
+	 * 0b10: reserved
+	 * 0b11: continuation data from some other block
+   */
+	uint8_t map[GC_MTBL_MAP_SZ];
+} gc_mtbl;
+
 struct gc_state_s
 {
 	__gc_capability gc_blk * heap[GC_LOG_BIGSZ];
 	__gc_capability gc_blk * heap_free;
 	__gc_capability gc_blk * heap_big;
+	__gc_capability gc_mtbl * mtbl;
 };
 
 extern __gc_capability struct gc_state_s * gc_state;
@@ -172,5 +157,8 @@ enum gc_defines
 X_GC_LOG
 #undef X
 };
+
+void
+gc_print_map (__gc_capability gc_mtbl * mtbl);
 
 #endif /* _GC_H_ */

@@ -10,8 +10,19 @@ int main ()
   gc_init();
 	printf("gc test\n");
   __gc_capability void * ptr = gc_malloc(100);
-  __gc_capability void * a = gc_malloc(4000);
-  __gc_capability void * b = gc_malloc(3092);
+  __gc_capability void * a = gc_malloc(107);
+  __gc_capability void * b = gc_malloc(90);
+  int i;
+  for (i=0; i<15; i++)
+  {
+    printf("alloc: %s\n", gc_cap_str(gc_malloc(400+i)));
+    gc_print_map(gc_state->mtbl);
+  }
+  for (i=0; i<15; i++)
+  {
+    printf("alloc: %s\n", gc_cap_str(gc_malloc(100+i)));
+    gc_print_map(gc_state->mtbl);
+  }
   __gc_capability void * c = gc_malloc(2909);
   __gc_capability void * d = gc_malloc(1);
   __gc_capability void * e = gc_malloc(0);
