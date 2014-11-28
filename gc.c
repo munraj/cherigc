@@ -48,6 +48,20 @@ gc_first_bit (uint64_t x)
 }
 
 void
+gc_alloc_mtbl (__gc_capability gc_mtbl ** mtbl)
+{
+  *mtbl = gc_alloc_internal(GC_PAGESZ);
+  if (!*mtbl)
+    gc_error("gc_alloc_internal(%zu)", GC_PAGESZ);
+  memset((void*)*mtbl, 0, GC_PAGESZ);
+  (*mtbl)->base = gc_alloc_internal(GC_PAGESZ*GC_PAGES_PER_MTBL);
+  if (!(*mtbl)->base)
+    gc_error("gc_alloc_internal(%zu)", GC_PAGESZ*GC_PAGES_PER_MTBL);
+  gc_debug("allocated mtbl: %s", gc_cap_str(*mtbl));
+  gc_debug("allocated mtbl base: %s", gc_cap_str((*mtbl)->base));
+}
+
+void
 gc_init (void)
 {
   gc_debug("gc_init enter");
@@ -60,15 +74,8 @@ gc_init (void)
   gc_debug("heap: %s", gc_cap_str(gc_state->heap));*/
   memset((void*)gc_state, 0, sizeof(struct gc_state_s));
 
-  gc_state->mtbl = gc_alloc_internal(GC_PAGESZ);
-  if (!gc_state->mtbl)
-    gc_error("gc_alloc_internal(%zu)", GC_PAGESZ);
-  memset((void*)gc_state->mtbl, 0, GC_PAGESZ);
-  gc_state->mtbl->base = gc_alloc_internal(GC_PAGESZ*GC_PAGES_PER_MTBL);
-  if (!gc_state->mtbl->base)
-    gc_error("gc_alloc_internal(%zu)", GC_PAGESZ*GC_PAGES_PER_MTBL);
-  gc_debug("mtbl: %s", gc_cap_str(gc_state->mtbl));
-  gc_debug("base: %s", gc_cap_str(gc_state->mtbl->base));
+  gc_alloc_mtbl((__gc_capability gc_mtbl **) &gc_state->mtbl);
+  gc_alloc_mtbl((__gc_capability gc_mtbl **) &gc_state->mtbl_big);
 
   gc_debug("gc_init success");
 }
@@ -91,7 +98,7 @@ gc_alloc_free_page (__gc_capability gc_mtbl * mtbl,
           (i*4+j)*GC_PAGESZ);
         *out_blk = gc_cheri_setlen(*out_blk,
           GC_PAGESZ);
-        mtbl->map[i] |= type << (3-j)*2;
+        mtbl->map[i] |= type << ((3-j)*2);
         return 0;
       }
       byte <<= 2;
@@ -100,6 +107,54 @@ gc_alloc_free_page (__gc_capability gc_mtbl * mtbl,
   return 1;
 }
 
+const char * BINSTR (uint8_t byte)
+{
+  static char c[9];
+  c[0] = '0'+((byte>>7)&1);
+  c[1] = '0'+((byte>>6)&1);
+  c[2] = '0'+((byte>>5)&1);
+  c[3] = '0'+((byte>>4)&1);
+  c[4] = '0'+((byte>>3)&1);
+  c[5] = '0'+((byte>>2)&1);
+  c[6] = '0'+((byte>>1)&1);
+  c[7] = '0'+((byte>>0)&1);
+  c[8] = 0;
+  return c;
+}
+
+void
+gc_mtbl_set_map (__gc_capability gc_mtbl * mtbl,
+  int start, int end, uint8_t value)
+{
+  uint8_t value4, mask;
+  int i;
+  value4 = (value << 6) | (value << 4) | (value << 2) | value;
+  if (start/4 == end/4)
+  {
+    /* start/end at same byte; just set the required bits */
+    mask = (uint8_t)0xFF >> ((start%4)*2);
+    mask ^= (uint8_t)0xFF >> (((end%4)+1)*2);
+    i = start/4;
+    mtbl->map[i] = (mtbl->map[i] & ~mask) |
+                   (value4 & mask);
+  }
+  else
+  {
+    mask = (uint8_t)0xFF >> ((start%4)*2);
+    i = start/4;
+    mtbl->map[i] = (mtbl->map[i] & ~mask) |
+                   (value4 & mask);
+    /* deal with bytes in between */
+    for (i=start/4+1; i<=end/4-1; i++)
+      mtbl->map[i] = value4;
+    mask = ~((uint8_t)0xFF >> (((end%4)+1)*2));
+    i = end/4;
+    mtbl->map[i] = (mtbl->map[i] & ~mask) |
+                   (value4 & mask);
+  }
+}
+
+/* XXX: only for mtbl storing SMALL OBJECTS */
 int
 gc_get_block (__gc_capability gc_mtbl * mtbl,
   __gc_capability gc_blk ** out_blk,
@@ -125,15 +180,16 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
     {
       /* this page contains block header */
       
-      *out_blk = cheri_ptr((uintptr_t)ptr & ~GC_PAGEMASK, GC_PAGESZ);
+      *out_blk = cheri_ptr((void*)((uintptr_t)ptr & ~GC_PAGEMASK),
+        GC_PAGESZ);
       return 0;
     }
-    else if (type == 0x0 || type == 0x2)
+    else if (type == 0x0 || type == 0x3)
     {
       /* block doesn't exist */
       return 1;
     }
-    else if (type == 0x3)
+    else if (type == 0x2)
     {
       /* block is continuation data; go to previous page */
       if (!indx) return 1;
@@ -144,7 +200,7 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
 }
 
 void
-gc_print_map (__gc_capability gc_mtbl * mtbl)
+gc_print_map (__gc_capability gc_mtbl * mtbl, size_t slotsz)
 {
   int i, j;
   for (i=0; i<GC_MTBL_MAP_SZ; i++)
@@ -152,15 +208,18 @@ gc_print_map (__gc_capability gc_mtbl * mtbl)
     uint8_t byte = mtbl->map[i];
     for (j=0; j<4; j++)
     {
-      uint64_t addr = (uint64_t)(uintptr_t)mtbl->base +
-          (4*i+j)*GC_PAGESZ;
+      uint64_t addr = (uint64_t)gc_cheri_getbase(mtbl->base) +
+          (4*i+j)*slotsz;
       switch (byte >> 6)
       {
         case 0x1:
-          gc_debug("0x%llx    block header", addr);
+          gc_debug("0x%llx    block header / used unmarked", addr);
+          break;
+        case 0x2:
+          gc_debug("0x%llx    continuation data", addr);
           break;
         case 0x3:
-          gc_debug("0x%llx    continuation data", addr);
+          gc_debug("0x%llx    rsvd / used marked", addr);
           break;
       }
       byte <<= 2;
@@ -195,8 +254,35 @@ gc_malloc (size_t sz)
   gc_debug("servicing allocation request of %zu bytes", sz);
   if (sz >= GC_BIGSZ)
   {
-    gc_debug("request %zu is big", sz);
-    ptr = NULL;
+    roundsz = GC_ROUND_BIGSZ(sz);
+    gc_debug("request %zu is big (rounded %zu)", sz, roundsz);
+    /* allocate directly from the big heap */
+    /* try to bump-the-pointer, but if this fails, then search
+     * the map
+     */
+    if (gc_cheri_getoffset(gc_state->mtbl_big->base) + roundsz >
+        gc_cheri_getlen(gc_state->mtbl_big->base))
+    {
+      /* out of memory, collect or search the map */
+      gc_debug("couldn't bump the pointer");
+      ptr = NULL;
+    }
+    else
+    {
+      ptr = gc_cheri_incbase(gc_state->mtbl_big->base,
+        gc_cheri_getoffset(gc_state->mtbl_big->base));
+      ptr = gc_cheri_setoffset(ptr, 0);
+      ptr = gc_cheri_setlen(ptr, roundsz);
+      gc_state->mtbl_big->base += roundsz;
+      /* set relevant bits as unfree in table */
+      indx = ((uintptr_t)ptr -
+        (uintptr_t)gc_cheri_getbase(gc_state->mtbl_big->base)) >>
+        GC_LOG_BIGSZ;
+      gc_debug("setting index %d to %d as used\n",
+        indx, indx+roundsz/GC_BIGSZ-1);
+      gc_mtbl_set_map(gc_state->mtbl_big,
+        indx, indx+roundsz/GC_BIGSZ-1, GC_MTBL_USED);
+    }
   }
   else if (sz < GC_MINSZ)
   {
@@ -214,7 +300,7 @@ gc_malloc (size_t sz)
     if (!blk)
     {
       gc_debug("allocating new block");
-      error = gc_alloc_free_page(gc_state->mtbl, &blk, 0x1);
+      error = gc_alloc_free_page(gc_state->mtbl, &blk, GC_MTBL_USED);
       if (error)
       {
         gc_error("out of memory");

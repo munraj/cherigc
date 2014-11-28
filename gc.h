@@ -11,6 +11,7 @@
 #define gc_cheri_incbase		cheri_incbase
 #define gc_cheri_ptr		cheri_ptr
 #define gc_cheri_setlen		cheri_setlen
+#define gc_cheri_setoffset		cheri_setoffset
 
 void gc_init (void);
 __gc_capability void * gc_malloc (size_t sz);
@@ -68,6 +69,12 @@ __gc_capability void * gc_alloc_internal (size_t sz);
 #define GC_ROUND_POW2(x) gc_round_pow2(x)
 
 /*
+ * Round size to next multiple of GC_BIGSZ.
+ */
+#define GC_ROUND_BIGSZ(x) \
+	(((x)+GC_BIGSZ-1)&~(GC_BIGSZ-1))
+
+/*
  * Calculate base-2 logarithm when x is known to be a power of two.
  */
 #define GC_LOG2(x) gc_log2(x)
@@ -116,21 +123,43 @@ typedef struct gc_mtbl_s
 	__gc_capability void * base;
 
 	/*
+   * When the data blocks store small objects:
    * Two-bit entry for each page from the base.
 	 * 0b00: page free
 	 * 0b01: contains block header
-	 * 0b10: reserved
-	 * 0b11: continuation data from some other block
+	 * 0b10: continuation data from some other block
+	 * 0b11: reserved
+	 * In this case, the mtbl stores information for
+	 * GC_PAGESZ*GC_PAGESZ*4 many bytes of data.
+	 * When GC_PAGESZ = 4kB, this is about 64MB.
+   *
+   * When the data blocks store large objects:
+   * Two-bit entry for each GC_BIGSZ sized object from the base.
+	 * 0b00: slot free
+	 * 0b01: slot used, unmarked
+	 * 0b10: continuation data from previous slot
+	 * 0b11: slot used, marked
+	 * In this case, the mtbl stores information for
+	 * GC_BIGSZ*GC_PAGESZ*4 many bytes of data.
+	 * When GC_BIGSZ = 1kB, and GC_PAGESZ = 4kB, this is about 16MB.
    */
 	uint8_t map[GC_MTBL_MAP_SZ];
 } gc_mtbl;
+#define GC_MTBL_FREE	0x0
+#define GC_MTBL_USED	0x1
 
 struct gc_state_s
 {
+
+	/* small objects: allocated from pools,
+	 * individual block headers */
 	__gc_capability gc_blk * heap[GC_LOG_BIGSZ];
 	__gc_capability gc_blk * heap_free;
-	__gc_capability gc_blk * heap_big;
 	__gc_capability gc_mtbl * mtbl;
+
+	/* large objects: allocated by bump-the-pointer,
+	 * no block headers (one large mark/free bitmap) */
+	__gc_capability gc_mtbl * mtbl_big;
 };
 
 extern __gc_capability struct gc_state_s * gc_state;
@@ -159,6 +188,6 @@ X_GC_LOG
 };
 
 void
-gc_print_map (__gc_capability gc_mtbl * mtbl);
+gc_print_map (__gc_capability gc_mtbl * mtbl, size_t slotsz);
 
 #endif /* _GC_H_ */

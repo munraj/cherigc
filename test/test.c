@@ -15,13 +15,19 @@ int main ()
   int i;
   for (i=0; i<15; i++)
   {
-    printf("alloc: %s\n", gc_cap_str(gc_malloc(400+i)));
-    gc_print_map(gc_state->mtbl);
+    fprintf(stderr, "alloc: %s\n", gc_cap_str(gc_malloc(1024+i)));
+    fprintf(stderr, "small mtbl:\n");
+    gc_print_map(gc_state->mtbl, GC_PAGESZ);
+    fprintf(stderr, "big mtbl:\n");
+    gc_print_map(gc_state->mtbl_big, GC_BIGSZ);
   }
   for (i=0; i<15; i++)
   {
     printf("alloc: %s\n", gc_cap_str(gc_malloc(100+i)));
-    gc_print_map(gc_state->mtbl);
+    printf("small mtbl:\n");
+    gc_print_map(gc_state->mtbl, GC_PAGESZ);
+    printf("big mtbl:\n");
+    gc_print_map(gc_state->mtbl_big, GC_BIGSZ);
   }
   __gc_capability void * c = gc_malloc(2909);
   __gc_capability void * d = gc_malloc(1);
