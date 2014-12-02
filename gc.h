@@ -1,20 +1,48 @@
 #ifndef _GC_H_
 #define _GC_H_
 
-#include <stdint.h>
 #include <stdlib.h>
+#include "gc_cheri.h"
+#include "gc_stack.h"
 
-#define __gc_capability __capability
-#define gc_cheri_getbase		cheri_getbase
-#define gc_cheri_getlen		cheri_getlen
-#define gc_cheri_getoffset		cheri_getoffset
-#define gc_cheri_incbase		cheri_incbase
-#define gc_cheri_ptr		cheri_ptr
-#define gc_cheri_setlen		cheri_setlen
-#define gc_cheri_setoffset		cheri_setoffset
+/*
+ * GC_BIGSZ
+ * Size of a "big" block. Any allocation request from the client of
+ * size >= GC_BIGSZ is allocated as one new chunk from the OS, and
+ * stored in the big_heap list. See description above.
+ *
+ * GC_MINSZ
+ * Size of the smallest reclaimable object that can be allocated. This
+ * is set so that the mark bits can be stored in a single 64 bit
+ * integer in the header. Allocations <GC_MINSZ are still allocated
+ * from the relevant heap[] list, but the mark bits are only accurate
+ * to a granularity of GC_MINSZ.
+ *
+ * GC_PAGESZ
+ * The size of a page. This is the minimum unit of allocation used
+ * when requesting memory from the operating system.
+ *
+ * GC_STACKSZ
+ * The size of the mark stack in bytes. Should be a multiple of the
+ * page size to avoid wasting memory. This means the stack can have
+ * maximum of GC_STACKSZ/(sizeof __gc_capability void *) many entries
+ * before it overflows.
+ */ 
+#define GC_LOG_BIGSZ	 (10)
+#define GC_BIGSZ	 		 ((size_t) (1 << GC_LOG_BIGSZ))
+#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-6)
+#define GC_MINSZ		   ((size_t) (1 << GC_LOG_MINSZ))
+
+#define GC_LOG_PAGESZ	 12
+#define GC_PAGESZ			 ((size_t)1 << GC_LOG_PAGESZ)
+#define GC_PAGEMASK		 (((uintptr_t)1 << GC_LOG_PAGESZ)-(uintptr_t)1)
+
+#define GC_STACKSZ		 (4*GC_PAGESZ)
 
 void gc_init (void);
+
 __gc_capability void * gc_malloc (size_t sz);
+
 void gc_free (__gc_capability void * ptr);
 
 /*
@@ -32,26 +60,6 @@ void gc_revoke (__gc_capability void * ptr);
 void gc_reuse (__gc_capability void * ptr);
 
 __gc_capability void * gc_alloc_internal (size_t sz);
-
-#define GC_INIT_HEAPSZ ((size_t) (64*1024))
-
-/*
- * GC_BIGSZ
- * Size of a "big" block. Any allocation request from the client of
- * size >= GC_BIGSZ is allocated as one new chunk from the OS, and
- * stored in the big_heap list. See description above.
- *
- * GC_MINSZ
- * Size of the smallest reclaimable object that can be allocated. This
- * is set so that the mark bits can be stored in a single 64 bit
- * integer in the header. Allocations <GC_MINSZ are still allocated
- * from the relevant heap[] list, but the mark bits are only accurate
- * to a granularity of GC_MINSZ.
- */ 
-#define GC_LOG_BIGSZ	 (10)
-#define GC_BIGSZ	 		 ((size_t) (1 << GC_LOG_BIGSZ))
-#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-6)
-#define GC_MINSZ		   ((size_t) (1 << GC_LOG_MINSZ))
 
 /*
  * Round size to next multiple of alignment.
@@ -109,11 +117,6 @@ typedef struct gc_blk_s
 } gc_blk;
 #define GC_BLK_HDRSZ sizeof(gc_blk)
 
-
-#define GC_LOG_PAGESZ			12
-#define GC_PAGESZ					((size_t)1 << GC_LOG_PAGESZ)
-#define GC_PAGEMASK				(((uintptr_t)1 << GC_LOG_PAGESZ)-(uintptr_t)1)
-
 /* master block table */
 typedef struct gc_mtbl_s
 {
@@ -153,41 +156,46 @@ typedef struct gc_mtbl_s
 struct gc_state_s
 {
 
-	/* small objects: allocated from pools,
-	 * individual block headers */
+	/*
+   * Small objects: allocated from pools, individual block headers.
+   */
 	__gc_capability gc_blk * heap[GC_LOG_BIGSZ];
 	__gc_capability gc_blk * heap_free;
 	gc_mtbl mtbl;
 
-	/* large objects: allocated by bump-the-pointer,
-	 * no block headers (one large mark/free bitmap) */
+	/*
+   * Large objects: allocated by bump-the-pointer, no block headers
+	 * (one large mark/free bitmap).
+   */
 	gc_mtbl mtbl_big;
+
+	/*
+   * Saved register and stack state.
+   * Must be careful not to overwrite any registers upon save and
+   * restore.
+   * See gc_cheri.h.
+   */
+	__gc_capability void * regs[GC_NUM_SAVED_REGS];
+
+	/* points to regs with correct bound */
+	__gc_capability void * __gc_capability * regs_c;
+
+	__gc_capability void * stack;
+
+	int mark_state;
+	gc_stack mark_stack;
 };
+
+/* not collecting */
+#define GC_MS_NONE  0
+
+/* marking */
+#define GC_MS_MARK  1
+
+/* sweeping */
+#define GC_MS_SWEEP 2
 
 extern __gc_capability struct gc_state_s * gc_state;
-
-#define X_GC_LOG \
-	X(GC_LOG_ERROR,	0, "error") \
-	X(GC_LOG_WARN,	1, "warn") \
-	X(GC_LOG_DEBUG,	2, "debug")
-#define gc_error(...) gc_log(GC_LOG_ERROR, __FILE__, __LINE__, \
-		__VA_ARGS__)
-#define gc_warn(...) gc_log(GC_LOG_WARN, __FILE__, __LINE__, \
-		__VA_ARGS__)
-#define gc_debug(...) gc_log(GC_LOG_DEBUG, __FILE__, __LINE__, \
-		__VA_ARGS__)
-void gc_log (int severity, const char * file, int line,
-		const char * format, ...);
-const char * gc_log_severity_str (int severity);
-const char * gc_cap_str (__gc_capability void * ptr);
-
-enum gc_defines
-{
-#define X(cnst,value,...) \
-	cnst=value,
-X_GC_LOG
-#undef X
-};
 
 void
 gc_print_map (__gc_capability gc_mtbl * mtbl);
@@ -255,12 +263,5 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
   __gc_capability gc_blk ** out_blk,
   size_t * out_indx,
   __gc_capability void * ptr);
-
-/*
- * Prints the map of a master block table, without outputting the free
- * blocks.
- */
-void
-gc_print_map (__gc_capability gc_mtbl * mtbl);
 
 #endif /* _GC_H_ */

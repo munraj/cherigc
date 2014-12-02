@@ -1,7 +1,5 @@
 #include "gc_scan.h"
-
-#include <machine/cheri.h>
-#include <machine/cheric.h>
+#include "gc_debug.h"
 
 void gc_scan_region (__gc_capability void * region)
 {

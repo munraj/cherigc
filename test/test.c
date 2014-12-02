@@ -1,5 +1,6 @@
 #include <gc.h>
-#include <gc_scan.h>
+#include <gc_debug.h>
+#include <gc_collect.h>
 #include <stdio.h>
 
 #include <machine/cheri.h>
@@ -7,8 +8,39 @@
 
 int main ()
 {
+/*
+  printf("stack test\n");
+  gc_stack stack;
+  __gc_capability gc_stack * stackc =
+    gc_cheri_ptr(&stack, sizeof stack);
+  printf("init: %d\n", gc_stack_init(stackc, GC_PAGESZ));
+  {
+    __capability void * cap;
+    __capability void * __capability * capc =
+      gc_cheri_ptr((void*)&cap, sizeof cap);
+    int i;
+    for (i=0; i<50000; i++)
+    {
+      cap = gc_cheri_ptr((void*)0x123400+i, i);
+      printf("push: %d\n", gc_stack_push(stackc, cap));
+    }
+    for (i=0; i<11; i++)
+    {
+      __asm__ __volatile__ ("daddu $2, $2, $zero");
+      __asm__ __volatile__ ("daddu $2, $2, $zero");
+      __asm__ __volatile__ ("daddu $2, $2, $zero");
+      printf("pop: %d\n", gc_stack_pop(stackc, capc));
+      printf("(cap): %s\n", gc_cap_str(cap));
+      __asm__ __volatile__ ("daddu $3, $3, $zero");
+      __asm__ __volatile__ ("daddu $3, $3, $zero");
+      __asm__ __volatile__ ("daddu $3, $3, $zero");
+    }
+  }
+  exit(1);
+*/
+
   gc_init();
-	printf("gc test\n");
+	printf("gc test; sizeof state: %zu\n", sizeof *gc_state);
   __gc_capability void * ptr = gc_malloc(100);
   __gc_capability void * a = gc_malloc(107);
   __gc_capability void * b = gc_malloc(90);
@@ -58,7 +90,10 @@ int main ()
 
   size_t len = sizeof s - ((uintptr_t)store-(uintptr_t)&s);
   printf("len: %zu, sizeof s: %zu\n", len, sizeof s);
-  gc_scan_region(gc_cheri_ptr(store, len));
+  //gc_scan_region(gc_cheri_ptr(store, len));
+
+
+	gc_collect();
 	return 0;
 }
 

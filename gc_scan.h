@@ -1,7 +1,7 @@
 #ifndef _GC_SCAN_H_
 #define _GC_SCAN_H_
 
-#include "gc.h"
+#include "gc_cheri.h"
 
 void gc_scan_region (__gc_capability void * region);
 

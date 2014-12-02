@@ -1,4 +1,6 @@
 #include "gc.h"
+#include "gc_debug.h"
+#include "gc_stack.h"
 
 #include <machine/cheri.h>
 #include <machine/cheric.h>
@@ -84,11 +86,18 @@ gc_init (void)
     gc_error("gc_alloc_internal(%zu)", GC_INIT_HEAPSZ);
   gc_debug("heap: %s", gc_cap_str(gc_state->heap));*/
   memset((void*)gc_state, 0, sizeof(struct gc_state_s));
+	gc_state->regs_c = gc_cheri_ptr((void*)&gc_state->regs,
+		sizeof(gc_state->regs));
+
+	gc_state->mark_state = GC_MS_NONE;
 
   gc_alloc_mtbl((__gc_capability gc_mtbl *) &gc_state->mtbl,
     GC_PAGESZ, 16384, GC_MTBL_FLAG_SMALL); /* 4096*16384 => 64MB heap */
   gc_alloc_mtbl((__gc_capability gc_mtbl *) &gc_state->mtbl_big,
     GC_BIGSZ, 16384, 0); /* 1024*16384 => 16MB heap */
+
+  if (gc_stack_init(&gc_state->mark_stack, GC_STACKSZ))
+    gc_error("gc_init_stack(%zu)", GC_STACKSZ);
 
   gc_debug("gc_init success");
 }
@@ -264,64 +273,6 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
   return 0;
 }
 
-void
-gc_print_map (__gc_capability gc_mtbl * mtbl)
-{
-  int i, j;
-  uint64_t prev_cont_addr = 0;
-  uint64_t prev_addr = 0;
-  for (i=0; i<mtbl->nslots/4; i++)
-  {
-    uint8_t byte = mtbl->map[i];
-    for (j=0; j<4; j++)
-    {
-      uint64_t addr = (uint64_t)gc_cheri_getbase(mtbl->base) +
-          (4*i+j)*mtbl->slotsz;
-      if (prev_cont_addr &&
-          (byte >> 6) != GC_MTBL_CONT)
-      {
-        if (prev_cont_addr == prev_addr)
-          gc_debug("0x%llx    continuation data",
-            prev_cont_addr);
-        else
-          gc_debug("0x%llx-0x%llx  (continuation data)",
-            prev_cont_addr, prev_addr);
-        prev_cont_addr = 0;
-      }
-      switch (byte >> 6)
-      {
-        case 0x1:
-          if (mtbl->flags & GC_MTBL_FLAG_SMALL)
-            gc_debug("0x%llx    block header", addr);
-          else
-            gc_debug("0x%llx    used unmarked", addr);
-          break;
-        case 0x2:
-          if (!prev_cont_addr)
-            prev_cont_addr = addr;
-          break;
-        case 0x3:
-          if (mtbl->flags & GC_MTBL_FLAG_SMALL)
-            gc_debug("0x%llx    reserved", addr);
-          else
-            gc_debug("0x%llx    used marked", addr);
-          break;
-      }
-      byte <<= 2;
-      prev_addr = addr;
-    } 
-  }
-  if (prev_cont_addr)
-  {
-    if (prev_cont_addr == prev_addr)
-      gc_debug("0x%llx    continuation data",
-        prev_cont_addr);
-    else
-      gc_debug("0x%llx-0x%llx  (continuation data)",
-        prev_cont_addr, prev_addr);
-  }
-}
-
 int
 gc_follow_free (__gc_capability gc_blk ** blk)
 {
@@ -341,7 +292,28 @@ gc_ins_blk (__gc_capability gc_blk * blk,
 }
 
 __gc_capability void *
+gc_malloc_entry (size_t sz);
+__gc_capability void *
 gc_malloc (size_t sz)
+{
+	__capability void * c3;
+	/*__asm__ __volatile__ (
+		"clc $c16, %0, 0($c0)" : : "r"(gc_state->regs_c) : "memory"
+	);*/
+	__capability void * c16;
+	c16 = gc_state->regs_c;
+	__asm__ __volatile__ (
+		"cmove $c16, %0" : : "C"(c16) : "memory"
+	);
+	GC_SAVE_REGS(16);
+	c3 = gc_malloc_entry(sz);
+	GC_RESTORE_REGS(16);
+	GC_INVALIDATE_UNUSED_REGS;
+	return c3;
+}
+
+__gc_capability void *
+gc_malloc_entry (size_t sz)
 {
   __gc_capability void * ptr;
   __gc_capability gc_blk * blk;
@@ -427,7 +399,7 @@ gc_malloc (size_t sz)
     ptr = gc_cheri_setlen(ptr, sz);
   }
   gc_debug("returning %s", gc_cap_str(ptr));
-  return ptr;
+	return ptr;
 }
 
 void
@@ -443,184 +415,8 @@ gc_rm_blk (__gc_capability gc_blk * blk,
     blk->prev->next = blk->next;
 }
 
-#if 0
-__gc_capability gc_blk *
-gc_find_free_old (__gc_capability gc_blk * list, size_t sz)
-{
-  __gc_capability gc_blk * blk;
-  for (blk=list; blk; blk=blk->next)
-    if (blk->sz >= sz)
-      return blk;
-  return NULL;
-}
-
-__gc_capability void *
-gc_malloc_old2 (size_t sz)
-{
-  __gc_capability void * ptr;
-  __gc_capability gc_blk * blk;
-  __gc_capability gc_blk * free_blk;
-  size_t remaining, roundsz, logsz;
-  int indx, hdrbits;
-  ptr = NULL;
-  gc_debug("external allocator: %zu bytes requested",
-    sz);
-  if (sz >= GC_BIGSZ)
-  {
-    roundsz = GC_ROUND_ALIGN(sz);
-    gc_debug("allocation size %zu is greater than GC_BIGSZ",
-      sz);
-    blk = gc_find_free(gc_state->heap_free, sz);
-    if (!blk)
-    {
-      /* allocate new block */
-      blk = gc_alloc_internal(roundsz + GC_BLK_HDRSZ);
-      if (!blk)
-      {
-        gc_error("gc_alloc_internal(%zu) failed", GC_BIGSZ);
-        return NULL;
-      }
-      blk->sz = roundsz + GC_BLK_HDRSZ;
-      gc_debug("allocated new block: %s", gc_cap_str(blk));
-    }
-    else
-    {
-      gc_debug("found free block: %s", gc_cap_str(blk));
-      gc_rm_blk(blk,
-        (__gc_capability gc_blk **) &gc_state->heap_free);
-    }
-    blk->objsz = sz;
-    blk->marks = 0; 
-    blk->free = 0;
-    gc_ins_blk(blk,
-      (__gc_capability gc_blk **) &gc_state->heap_big);
-    remaining = blk->sz - roundsz - GC_BLK_HDRSZ;
-    if (remaining >= GC_BIGSZ)
-    {
-      /* lots of free space in this block, split it */
-      gc_debug("remaining space %zu is greater than GC_BIGSZ",
-        remaining);
-      free_blk = (__gc_capability void*) (
-        (__gc_capability char *) blk +
-        GC_BLK_HDRSZ + roundsz);
-      free_blk->sz = remaining;
-      gc_ins_blk(free_blk,
-        (__gc_capability gc_blk **) &gc_state->heap_free);
-    }
-    ptr = gc_cheri_incbase(blk, GC_BLK_HDRSZ);
-    ptr = gc_cheri_setlen(ptr, sz);
-  }
-  else if (GC_ROUND_POW2(sz) >= GC_MINSZ)
-  {
-    roundsz = GC_ROUND_POW2(sz);
-    logsz = GC_LOG2(roundsz);
-    gc_debug("allocation size %zu (rounded: %zu, log: %zu) is small",
-      sz, roundsz, logsz);
-    /* find free space in existing block */
-    for (blk=gc_state->heap[logsz]; blk; blk=blk->next)
-    {
-      if (blk->free)
-      {
-        gc_debug("found free block: %s", gc_cap_str(blk));
-        break;
-      }
-    }
-    if (!blk)
-    {
-      /* allocate a new block */
-      blk = gc_alloc_internal(GC_BIGSZ);
-      if (!blk)
-      {
-        gc_error("gc_alloc_internal(%zu) failed", GC_BIGSZ + GC_BLK_HDRSZ);
-        return NULL;
-      }
-      blk->sz = GC_BIGSZ + GC_BLK_HDRSZ;
-      gc_debug("allocated new block: %s", gc_cap_str(blk));
-      blk->objsz = roundsz;
-      blk->marks = 0; 
-      blk->free = ((1ULL << (GC_BIGSZ / roundsz)) - 1ULL);
-      /* account for the space taken up by the block header */
-      //hdrbits = (GC_BLK_HDRSZ + roundsz - 1) / roundsz;
-      //blk->free &= ~((1ULL << hdrbits) - 1ULL);
-      gc_debug("free bits: 0x%llx, shifted: 0x%llx", blk->free, 1ULL<<(GC_BIGSZ/roundsz));
-      gc_ins_blk(blk,
-        (__gc_capability gc_blk **) &gc_state->heap[logsz]);
-    }
-    indx = GC_FIRST_BIT(blk->free);
-    gc_debug("first free index: %d", indx);
-    blk->free &= ~(1ULL << indx);
-    ptr = gc_cheri_incbase(blk, indx*roundsz);
-    ptr = gc_cheri_setlen(ptr, sz);
-  }
-  else
-  {
-    gc_error("external allocator: unhandled size: %zu < GC_MINSZ (%zu)\n",
-      sz, GC_MINSZ);
-  }
-  gc_debug("external allocator: returning %s",
-    gc_cap_str(ptr));
-  return ptr;
-}
-#endif /* 0 */
-
-/*__gc_capability void *
-gc_malloc_old (size_t sz)
-{
-  __gc_capability void * ptr;
-  if (sz > gc_cheri_getlen(gc_state->heap) -
-           gc_cheri_getoffset(gc_state->heap))
-  {
-    gc_debug("external allocator: request %zu bytes: too big (max %zu)",
-      sz, gc_cheri_getlen(gc_state->heap) -
-      gc_cheri_getoffset(gc_state->heap));
-    return NULL;
-  }
-  ptr = gc_cheri_ptr((void*)gc_cheri_getbase(gc_state->heap) +
-      gc_cheri_getoffset(gc_state->heap),
-      sz);
-  gc_state->heap += sz;
-  gc_debug("heap: %s", gc_cap_str(gc_state->heap));
-  return ptr;
-}*/
-
 void
 gc_free (__gc_capability void * ptr);
-
-const char *
-gc_log_severity_str (int severity)
-{
-  static char s[10];
-  if (0) {}
-#define X(cnst,value,str,...) \
-  else if (severity == cnst) return strcpy(s, str);
-  X_GC_LOG
-#undef X
-  else return strcpy(s, "");
-}
-
-const char *
-gc_cap_str (__gc_capability void * ptr)
-{
-  static char s[50];
-  snprintf(s, sizeof s, "[b=%p o=%zu l=0x%zx]",
-    (void*)gc_cheri_getbase(ptr),
-    gc_cheri_getoffset(ptr),
-    gc_cheri_getlen(ptr));
-  return s;
-}
-
-void
-gc_log (int severity, const char * file, int line,
-    const char * format, ...)
-{
-  va_list vl;
-  va_start(vl, format);
-  fprintf(stderr, "gc:%s:%d: %s: ", file, line,
-    gc_log_severity_str(severity));
-  vfprintf(stderr, format, vl);
-  fprintf(stderr, "\n");
-  va_end(vl);
-}
 
 __gc_capability void *
 gc_alloc_internal (size_t sz)

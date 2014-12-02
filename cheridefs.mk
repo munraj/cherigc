@@ -7,6 +7,7 @@ CFLAGS=
 CFLAGS+=-O2
 
 CC:=$(CHERI_SDK_BIN)/clang
+LD:=$(CHERI_SDK_BIN)/ld
 NM:=$(CHERI_SDK)/bin/nm
 AS:=$(CHERI_SDK)/bin/as
 OBJCOPY:=$(CHERI_SDK)/bin/objcopy
