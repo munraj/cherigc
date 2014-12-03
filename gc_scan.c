@@ -12,8 +12,25 @@ void gc_scan_region (__gc_capability void * region)
 	{
 		ptr = *scan;
 		gc_debug("scan: %p value: %p tag: %d",
-			(void*)scan, (void*)ptr, (int)cheri_gettag(ptr));
+			(void*)scan, (void*)ptr, gc_cheri_gettag(ptr));
 	}
+}
+
+uint64_t
+gc_get_page_tags (__gc_capability void * page)
+{
+	__gc_capability void * __gc_capability * scan;
+	uint64_t tags, mask;
+	tags = 0;
+	mask = 1ULL;
+	for (scan = gc_cheri_ptr((void*)page, GC_PAGESZ);
+			 gc_cheri_getoffset(scan) < GC_PAGESZ;
+			 scan++, mask <<= 1)
+	{
+		if (gc_cheri_gettag(*scan))
+			tags |= mask;
+	}
+	return tags;
 }
 
 /*

@@ -19,10 +19,11 @@ const char *
 gc_cap_str (__gc_capability void * ptr)
 {
   static char s[50];
-  snprintf(s, sizeof s, "[b=%p o=%zu l=0x%zx]",
+  snprintf(s, sizeof s, "[b=%p o=%zu l=0x%zx t=%d]",
     (void*)gc_cheri_getbase(ptr),
     gc_cheri_getoffset(ptr),
-    gc_cheri_getlen(ptr));
+    gc_cheri_getlen(ptr),
+		gc_cheri_gettag(ptr));
   return s;
 }
 

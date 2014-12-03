@@ -8,6 +8,22 @@
 
 int main ()
 {
+	{
+		gc_init();
+		__gc_capability void * x, * y;
+		gc_malloc(4*1048576);
+		gc_malloc(4*1048576);
+		gc_malloc(4*1048576);
+		gc_malloc(4*1048576-1024*1);
+		x = gc_malloc(700);
+		x = gc_cheri_incbase(x, 400);
+		printf("allocated: %s\n", gc_cap_str(x));
+		int error;
+		error = gc_get_obj(x, gc_cheri_ptr(&y, sizeof y));
+		if (error) printf("ERROR!\n");
+		else printf("reconstructed: %s\n", gc_cap_str(y));
+		exit(1);
+	}
 /*
   printf("stack test\n");
   gc_stack stack;
@@ -40,7 +56,7 @@ int main ()
 */
 
   gc_init();
-	printf("gc test; sizeof state: %zu\n", sizeof *gc_state);
+	//printf("gc test; sizeof state: %zu\n", sizeof *gc_state);
   __gc_capability void * ptr = gc_malloc(100);
   __gc_capability void * a = gc_malloc(107);
   __gc_capability void * b = gc_malloc(90);
@@ -48,22 +64,22 @@ int main ()
   for (i=0; i<15; i++)
   {
     __gc_capability void * x = gc_malloc(320000+i);
-    __gc_capability gc_blk * y=NULL;
-    size_t indx=0;
-    int error = gc_get_block(&gc_state->mtbl, &y, &indx, x);
+    //__gc_capability gc_blk * y=NULL;
+    //size_t indx=0;
+    //int error = gc_get_block(&gc_state->mtbl, &y, &indx, x);
     fprintf(stderr, "alloc: %s\n", gc_cap_str(x));
-    fprintf(stderr, "get_block: %d, %s, %zu\n", error, gc_cap_str(y),indx);
-    gc_set_mark(x);
+    //fprintf(stderr, "get_block: %d, %s, %zu\n", error, gc_cap_str(y),indx);
+    /*gc_set_mark(x);
     fprintf(stderr, "small mtbl:\n");
     gc_print_map(&gc_state->mtbl);
     fprintf(stderr, "big mtbl:\n");
-    gc_print_map(&gc_state->mtbl_big);
+    gc_print_map(&gc_state->mtbl_big);*/
   }
   for (i=0; i<15; i++)
   {
     printf("alloc: %s\n", gc_cap_str(gc_malloc(100+i)));
-    printf("small mtbl:\n");
-    gc_print_map(&gc_state->mtbl);
+    //printf("small mtbl:\n");
+    //gc_print_map(&gc_state->mtbl);
     //fprintf(stderr, "big mtbl:\n");
     //gc_print_map(&gc_state->mtbl_big);
   }
@@ -91,7 +107,6 @@ int main ()
   size_t len = sizeof s - ((uintptr_t)store-(uintptr_t)&s);
   printf("len: %zu, sizeof s: %zu\n", len, sizeof s);
   //gc_scan_region(gc_cheri_ptr(store, len));
-
 
 	gc_collect();
 	return 0;

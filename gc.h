@@ -67,9 +67,19 @@ __gc_capability void * gc_alloc_internal (size_t sz);
  */
 #define GC_ROUND_ALIGN(x) GC_ROUND32(x)
 
+/*
+ * Align pointer to previous multiple of alignment.
+ * Currently set to 32 bytes, which is the alignment of capabilities.
+ */
+#define GC_ALIGN(x) GC_ALIGN32(x)
+
 /* Round size to next multiple of 32 bytes. */
 #define GC_ROUND32(x) \
 	(((x)+(size_t)31)&~(size_t)31)
+
+/* Align pointer to previous multiple of 32 bytes. */
+#define GC_ALIGN32(x) \
+	((void*)((uintptr_t)(x)&~(uintptr_t)31))
 
 /*
  * Round size to next power of two.
@@ -171,19 +181,41 @@ struct gc_state_s
 
 	/*
    * Saved register and stack state.
-   * Must be careful not to overwrite any registers upon save and
-   * restore.
-   * See gc_cheri.h.
+	 * See gc_cheri.h.
    */
 	__gc_capability void * regs[GC_NUM_SAVED_REGS];
 
 	/* points to regs with correct bound */
 	__gc_capability void * __gc_capability * regs_c;
 
+	/*
+   * Capability to the stack just as the collector is entered.
+	 */
 	__gc_capability void * stack;
+
+	/* initialized once only */
+	__gc_capability void * stack_bottom;
+	__gc_capability void * static_region;
 
 	int mark_state;
 	gc_stack mark_stack;
+	
+	/* pointer to stack with correct bound */
+	__gc_capability gc_stack * mark_stack_c;
+
+#ifdef GC_COLLECT_STATS
+	/* number of objects marked */
+	size_t nmark;
+
+	/* number of bytes marked */
+	size_t nmarkbytes;
+	
+	/* number of objects swept */
+	size_t nsweep;
+
+	/* number of bytes swept */
+	size_t nsweepbytes;
+#endif /* GC_COLLECT_STATS */
 };
 
 /* not collecting */
@@ -263,5 +295,14 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
   __gc_capability gc_blk ** out_blk,
   size_t * out_indx,
   __gc_capability void * ptr);
+
+/*
+ * Returns the actual allocated object, given a pointer to its
+ * interior.
+ * Returns non-zero on error (i.e., the object is unmanaged by us).
+ */
+int
+gc_get_obj (__gc_capability void * ptr,
+	__gc_capability void * __gc_capability * out_ptr);
 
 #endif /* _GC_H_ */

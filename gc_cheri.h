@@ -1,7 +1,6 @@
 #ifndef _GC_CHERI_H_
 #define _GC_CHERI_H_
 
-#ifndef GC_ASM_ONLY
 #include <stdint.h>
 #include <machine/cheri.h>
 #include <machine/cheric.h>
@@ -9,11 +8,13 @@
 #define __gc_capability __capability
 #define gc_cheri_getbase(x)		((uint64_t)cheri_getbase(x))
 #define gc_cheri_getlen(x)		((uint64_t)cheri_getlen(x))
-#define gc_cheri_getoffset(x)		((uint64_t)cheri_getoffset(x))
+#define gc_cheri_getoffset(x)	((uint64_t)cheri_getoffset(x))
+#define gc_cheri_gettag(x)		((int)cheri_gettag(x))
 #define gc_cheri_incbase		cheri_incbase
 #define gc_cheri_ptr		cheri_ptr
 #define gc_cheri_setlen		cheri_setlen
 #define gc_cheri_setoffset		cheri_setoffset
+#define gc_cheri_cleartag		cheri_cleartag
 
 /*
  * When the GC is entered:
@@ -93,6 +94,16 @@
 		"ccleartag $c" #indx ", $c" #indx : : : "memory" \
 	)
 
-#endif /* !GC_ASM_ONLY */
+__gc_capability void *
+gc_get_stack (void);
+
+__gc_capability void *
+gc_get_stack_top (void);
+
+__gc_capability void *
+gc_get_stack_bottom (void);
+
+__gc_capability void *
+gc_get_static_region (void);
 
 #endif /* _GC_CHERI_H_ */

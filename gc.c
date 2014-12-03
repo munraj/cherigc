@@ -67,6 +67,7 @@ gc_alloc_mtbl (__gc_capability gc_mtbl * mtbl,
     /* XXX: todo: free mtbl->base */
     gc_error("gc_alloc_internal(%zu)", nslots/4);
   }
+	memset((void*)mtbl->map, 0, nslots/4);
   mtbl->slotsz = slotsz;
   mtbl->nslots = nslots;
   mtbl->flags = flags;
@@ -98,6 +99,12 @@ gc_init (void)
 
   if (gc_stack_init(&gc_state->mark_stack, GC_STACKSZ))
     gc_error("gc_init_stack(%zu)", GC_STACKSZ);
+	
+	gc_state->mark_stack_c = gc_cheri_ptr((void*)&gc_state->mark_stack,
+		sizeof(gc_state->mark_stack));
+
+	gc_state->stack_bottom = gc_get_stack_bottom();
+	gc_state->static_region = gc_get_static_region();
 
   gc_debug("gc_init success");
 }
@@ -183,13 +190,13 @@ gc_set_mark (__gc_capability void * ptr)
   __gc_capability gc_blk * blk;
   size_t indx;
   uint8_t byte;
-  gc_debug("setting mark for object %s\n", gc_cap_str(ptr));
+  gc_debug("setting mark for object %s", gc_cap_str(ptr));
   /* try small region */
   error = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
   if (!error)
   {
     blk->marks |= 1ULL << indx;
-    gc_debug("set mark for small object at index %zu\n", indx);
+    gc_debug("set mark for small object at index %zu", indx);
   }
   else
   {
@@ -199,9 +206,13 @@ gc_set_mark (__gc_capability void * ptr)
       return 1;
     byte = gc_state->mtbl_big.map[indx/4];
     byte |= GC_MTBL_USED_MARKED << ((3-(indx%4))*2);
-    gc_debug("set mark for big object at index %zu\n", indx);
+    gc_debug("set mark for big object at index %zu", indx);
     gc_state->mtbl_big.map[indx/4] = byte;
   }
+#ifdef GC_COLLECT_STATS
+		gc_state->nmark++;
+		gc_state->nmarkbytes += gc_cheri_getlen(gc_get_obj(ptr));
+#endif /* GC_COLLECT_STATS */
   return 0;
 }
 
@@ -296,14 +307,17 @@ gc_malloc_entry (size_t sz);
 __gc_capability void *
 gc_malloc (size_t sz)
 {
+	size_t len;
 	__capability void * c3;
 	/*__asm__ __volatile__ (
 		"clc $c16, %0, 0($c0)" : : "r"(gc_state->regs_c) : "memory"
 	);*/
 	__capability void * c16;
+	len = (uintptr_t)gc_state->stack_bottom - (uintptr_t)GC_ALIGN(&len);
+	gc_state->stack = gc_cheri_setlen(gc_state->stack_bottom, len);
 	c16 = gc_state->regs_c;
 	__asm__ __volatile__ (
-		"cmove $c16, %0" : : "C"(c16) : "memory"
+		"cmove $c16, %0" : : "C"(c16) : "memory", "$c16"
 	);
 	GC_SAVE_REGS(16);
 	c3 = gc_malloc_entry(sz);
@@ -319,7 +333,7 @@ gc_malloc_entry (size_t sz)
   __gc_capability gc_blk * blk;
   int error, roundsz, logsz, hdrbits, indx;
   gc_debug("servicing allocation request of %zu bytes", sz);
-  if (sz >= GC_BIGSZ)
+  if (GC_ROUND_BIGSZ(sz) >= GC_BIGSZ)
   {
     roundsz = GC_ROUND_BIGSZ(sz);
     gc_debug("request %zu is big (rounded %zu)", sz, roundsz);
@@ -345,8 +359,6 @@ gc_malloc_entry (size_t sz)
       indx = ((uintptr_t)ptr -
         (uintptr_t)gc_cheri_getbase(gc_state->mtbl_big.base)) >>
         GC_LOG_BIGSZ;
-      gc_debug("setting index %d as used and %d to %d as continuation data\n",
-        indx, indx+1, indx+roundsz/GC_BIGSZ-1);
       gc_mtbl_set_map(&gc_state->mtbl_big,
         indx, indx, GC_MTBL_USED);
       if (roundsz/GC_BIGSZ>1)
@@ -390,10 +402,9 @@ gc_malloc_entry (size_t sz)
     }
     else
     {
-      gc_debug("found free block: %s", gc_cap_str(blk));
+      /*gc_debug("found free block: %s", gc_cap_str(blk));*/
     }
     indx = GC_FIRST_BIT(blk->free);
-    gc_debug("first free index: %d", indx);
     blk->free &= ~(1ULL << indx);
     ptr = gc_cheri_incbase(blk, indx*roundsz);
     ptr = gc_cheri_setlen(ptr, sz);
@@ -426,4 +437,55 @@ gc_alloc_internal (size_t sz)
   ptr = mmap(NULL, sz, PROT_READ | PROT_WRITE,
       MAP_ANON, -1, 0);
   return ptr ? gc_cheri_ptr(ptr, sz) : NULL;
+}
+
+int
+gc_get_obj (__gc_capability void * ptr,
+	__gc_capability void * __gc_capability * out_ptr)
+{
+  int error, done;
+  __gc_capability gc_blk * blk;
+	void * base;
+  size_t indx, len, i, j;
+  uint8_t byte, type;
+  /* try small region */
+  error = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
+  if (!error)
+	{
+		base = (char*)blk + indx*blk->objsz;
+		len = blk->objsz;
+	}
+  else
+  {
+    /* try big region */
+    error = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, ptr);
+    if (error)
+      return 1;
+		base = (char*)gc_cheri_getbase(gc_state->mtbl_big.base) +
+			indx*GC_BIGSZ;
+		/* determine length of big object */
+		len = GC_BIGSZ;
+		if (indx+1 < gc_state->mtbl_big.nslots)
+		{
+			indx++;
+			for (i=indx/4, done=0; ;i++)
+			{
+				byte = gc_state->mtbl_big.map[i];
+				for (j=(i==indx/4)?indx%4:0; j<4; j++)
+				{
+					type = (byte >> ((3-j)*2)) & 3;
+					if (type == GC_MTBL_CONT)
+						len += GC_BIGSZ;
+					else
+					{
+						done = 1;
+						break;
+					}
+				}
+				if (done) break;
+			}
+		}
+  }
+	*out_ptr = gc_cheri_ptr(base, len);
+  return 0;
 }
