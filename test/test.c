@@ -1,6 +1,7 @@
 #include <gc.h>
 #include <gc_debug.h>
 #include <gc_collect.h>
+#include <gc_scan.h>
 #include <stdio.h>
 
 #include <machine/cheri.h>
@@ -10,18 +11,34 @@ int main ()
 {
 	{
 		gc_init();
-		__gc_capability void * x, * y;
+		__gc_capability void * __capability * x, * y;
 		gc_malloc(4*1048576);
 		gc_malloc(4*1048576);
 		gc_malloc(4*1048576);
-		gc_malloc(4*1048576-1024*1);
-		x = gc_malloc(700);
-		x = gc_cheri_incbase(x, 400);
+		x = gc_malloc(GC_PAGESZ*3);
+		//x = gc_cheri_ptr((uint64_t)x+50000000, 10);
 		printf("allocated: %s\n", gc_cap_str(x));
-		int error;
-		error = gc_get_obj(x, gc_cheri_ptr(&y, sizeof y));
-		if (error) printf("ERROR!\n");
-		else printf("reconstructed: %s\n", gc_cap_str(y));
+		int rc;
+		rc = gc_set_mark(x);//, gc_cheri_ptr(&y, sizeof y));
+		printf("rc is %d\n", rc);
+		memset((void*)x, 0, gc_cheri_getlen(x));
+		x[62] = gc_cheri_ptr(0x1,0x2);
+		x[121] = gc_cheri_ptr(0x1,0x2);
+		x[127] = gc_cheri_ptr(0x1,0x2);
+		x[63] = gc_cheri_ptr(0x1,0x2);
+		x[16] = gc_cheri_ptr(0x1,0x2);
+		x[15] = gc_cheri_ptr(0x1,0x2);
+		x[14] = gc_cheri_ptr(0x1,0x2);
+		gc_tags tags;
+		tags = gc_get_page_tags(x);
+		printf("tags are 0x%llx 0x%llx\n", tags.hi, tags.lo);
+		gc_scan_tags(x, tags);
+		printf("reconstructed: %s\n", gc_cap_str(y));
+		gc_malloc(0);
+		do
+		{
+			gc_collect();
+		} while (gc_state->mark_state != GC_MS_NONE);
 		exit(1);
 	}
 /*
@@ -107,8 +124,6 @@ int main ()
   size_t len = sizeof s - ((uintptr_t)store-(uintptr_t)&s);
   printf("len: %zu, sizeof s: %zu\n", len, sizeof s);
   //gc_scan_region(gc_cheri_ptr(store, len));
-
-	gc_collect();
 	return 0;
 }
 

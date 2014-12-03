@@ -4,7 +4,7 @@
 
 int gc_stack_init (__gc_capability gc_stack * stack, size_t sz)
 {
-	stack->data =  gc_alloc_internal(sz);
+	stack->data = gc_alloc_internal(sz);
 	return 0;
 }
 

@@ -25,6 +25,7 @@ clean:
 gc.h: gc_cheri.h gc_stack.h
 gc_scan.h: gc_cheri.h
 gc_stack.h: gc_cheri.h
+gc_collect.h: gc_cheri.h
 gc_debug.h: gc_cheri.h gc.h
 gc.o: gc.c gc.h
 gc_scan.o: gc_scan.c gc_scan.h gc_debug.h

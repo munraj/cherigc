@@ -191,6 +191,7 @@ gc_set_mark (__gc_capability void * ptr)
   size_t indx;
   uint8_t byte, type;
   gc_debug("setting mark for object %s", gc_cap_str(ptr));
+	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
   /* try small region */
   rc = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
 	if (rc == GC_OBJ_FREE)
@@ -462,6 +463,7 @@ gc_get_obj (__gc_capability void * ptr,
 	void * base;
   size_t indx, len, i, j;
   uint8_t byte, type;
+	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
   /* try small region */
   rc = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
 	if (rc == GC_OBJ_FREE)
@@ -491,7 +493,7 @@ gc_get_obj (__gc_capability void * ptr,
 	/* else type == GC_MTBL_USED or GC_MTBL_USED_MARKED */
 	/* determine length of big object */
 	indx++;
-	for (i=indx/4; i<gc_state->nslots/4; i++)
+	for (i=indx/4; i<gc_state->mtbl_big.nslots/4; i++)
 	{
 		byte = gc_state->mtbl_big.map[i];
 		for (j=(i==indx/4)?indx%4:0; j<4; j++)

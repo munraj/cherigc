@@ -26,6 +26,13 @@ gc_collect (void)
 	}
 }
 
+int
+gc_is_unlimited (__gc_capability void * obj)
+{
+	/* rough approximation */
+	return gc_cheri_gettag(obj) && !gc_cheri_getbase(obj);
+}
+
 void
 gc_start_marking (void)
 {
@@ -39,20 +46,29 @@ gc_push_roots (void)
 {
 	/* push roots to mark stack */
 	gc_debug("push roots:");
-	int i, error;
+	int i, rc, error;
 	for (i=0; i<GC_NUM_SAVED_REGS; i++)
 	{
 		gc_debug("root: c%d: %s", 17+i, gc_cap_str(gc_state->regs_c[i]));
-		if (!gc_cheri_gettag(gc_state->regs_c[i]))
+		if (!gc_cheri_gettag(gc_state->regs_c[i]) ||
+				gc_is_unlimited(gc_state->regs_c[i]))
 			continue;
-		/* ignore return value of gc_set_mark; always push */
-		gc_set_mark_if_used(gc_state->regs_c[i]);
-		error = gc_stack_push(gc_state->mark_stack_c,
-			gc_state->regs_c[i]);
-		if (error)
+		rc = gc_set_mark(gc_state->regs_c[i]);
+		if (rc == GC_OBJ_FREE)
 		{
-			gc_error("mark stack overflow");
-			return;
+			/* root should not be pointing to this region; invalidate */
+			gc_state->regs_c[i] = gc_cheri_cleartag(gc_state->regs_c[i]);
+		}
+		else
+		{
+			/* push whether managed or not */
+			error = gc_stack_push(gc_state->mark_stack_c,
+				gc_state->regs_c[i]);
+			if (error)
+			{
+				gc_error("mark stack overflow");
+				return;
+			}
 		}
 	}
 	/*
@@ -60,47 +76,67 @@ gc_push_roots (void)
    * This isn't marked as it's not an object that's been allocated
    * by the collector.
    */
-	gc_debug("root: stack: %s", gc_cap_str(gc_state->stack));
-	gc_stack_push(gc_state->mark_stack_c, gc_state->stack);
+	/*gc_debug("root: stack: %s", gc_cap_str(gc_state->stack));
+	gc_stack_push(gc_state->mark_stack_c, gc_state->stack);*/
+}
+
+
+void
+gc_scan_tags (__gc_capability void * obj, gc_tags tags)
+{
+	gc_scan_tags_64(obj, tags.lo);
+	gc_scan_tags_64(obj+GC_PAGESZ/2, tags.hi);
 }
 
 void
-gc_scan_tags (__gc_capability void * obj, uint64_t tags)
+gc_scan_tags_64 (__gc_capability void * parent, uint64_t tags)
 {
 	__gc_capability void * __gc_capability * child_ptr;
-	for (child_ptr = obj; tags; tags>>=1, child_ptr++)
+	__gc_capability void * obj;
+	__gc_capability void * raw_obj;
+	int rc, error;
+	for (child_ptr = parent; tags; tags>>=1, child_ptr++)
 	{
 		if (tags&1)
 		{
-			char a[50],b[50];
-			strcpy(a, gc_cap_str(child_ptr));
-			strcpy(b, gc_cap_str(*child_ptr));
-			gc_debug("tag bit set: %s (*=) %s\n", a, b);
+			raw_obj = *child_ptr;
+			rc = gc_get_obj(raw_obj,
+				gc_cheri_ptr(&obj, sizeof(__gc_capability void *)));
+			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
+			if (rc == GC_OBJ_FREE)
+			{
+				/* immediately invalidate */
+				*child_ptr = gc_cheri_cleartag(raw_obj);
+			}
+			else if (rc == GC_OBJ_UNMANAGED)
+			{
+				/* XXX: "mark" this */
+				error = gc_stack_push(gc_state->mark_stack_c, raw_obj);
+				if (error)
+					gc_error("mark stack overflow");
+			}
+			else /* GC_OBJ_USED */
+			{
+				rc = gc_set_mark(obj);
+				if (rc != GC_OBJ_ALREADY_MARKED)
+				{
+					error = gc_stack_push(gc_state->mark_stack_c, obj);
+					if (error)
+						gc_error("mark stack overflow");
+				}
+			}
 		}
 	}
-			/*parent = obj;
-			unmanaged = gc_set_mark(parent[i]);
-	int
-	gc_try_mark_push (__gc_capability void * obj)
-	{
-		int unmanaged, error;
-		unmanaged = gc_set_mark(gc_state->regs_c[i]);
-		if (!unmanaged)
-		{
-			error = gc_stack_push(gc_state->mark_stack_c, obj);
-			if (error) return 1;
-		}
-		return 0;
-	}*/
 }
 
 void
 gc_resume_marking (void)
 {
-	int empty, unmanaged;
+	int empty, rc;
 	size_t i;
 	__gc_capability void * obj;
-	uint64_t tags, len;
+	uint64_t len;
+	gc_tags tags;
 	empty = gc_stack_pop(gc_state->mark_stack_c,
 		gc_cheri_ptr(&obj, sizeof(__gc_capability void*)));
 	if (empty)
@@ -123,9 +159,14 @@ gc_resume_marking (void)
 		 * will throw the GC into an infinite loop...
 		 */
 		gc_debug("popped off the mark stack, raw: %s\n", gc_cap_str(obj));
-		unmanaged = gc_get_obj(obj, gc_cheri_ptr(&obj,
+		rc = gc_get_obj(obj, gc_cheri_ptr(&obj,
 			sizeof(__gc_capability void *)));
-		if (unmanaged)
+		if (rc == GC_OBJ_FREE)
+		{
+			/* impossible: a free object is never pushed */
+			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE\n");
+		}
+		else if (rc == GC_OBJ_UNMANAGED)
 		{
 			/* XXX: object is unmanaged by the GC; use its native base and
 			 * length (GROW cap in both directions to align - correct?) */
@@ -151,7 +192,8 @@ gc_resume_marking (void)
 			obj += GC_PAGESZ;
 		}
 		tags = gc_get_page_tags(obj);
-		tags >>= (GC_PAGESZ - (len%GC_PAGESZ));
+		tags.lo &= (1 << (len%GC_PAGESZ)) - 1;
+		tags.hi = 0;
 		gc_scan_tags(obj, tags);
 	}
 }

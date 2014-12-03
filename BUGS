@@ -1,1 +1,3 @@
-- gc_get_mtbl_indx will return an index even if it's free; must check this, esp in gc_get_obj.
+- gc_get_page_tags not being used properly: we want to get the tags for an object, but are asking for the tags for a page.
+- unlimited cap leaking through
+- deref bottom of stack fails?

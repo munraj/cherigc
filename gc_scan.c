@@ -16,19 +16,32 @@ void gc_scan_region (__gc_capability void * region)
 	}
 }
 
-uint64_t
+gc_tags
 gc_get_page_tags (__gc_capability void * page)
 {
 	__gc_capability void * __gc_capability * scan;
-	uint64_t tags, mask;
-	tags = 0;
+	scan = gc_cheri_ptr(
+		gc_cheri_getbase(page) + gc_cheri_getoffset(page),
+		/*GC_PAGESZ*//*can't do this!*/
+		gc_cheri_getlen(page));
+	uint64_t mask;
+	gc_tags tags;
+	uint64_t * tagp;
+	tags.lo = 0;
+	tags.hi = 0;
 	mask = 1ULL;
-	for (scan = gc_cheri_ptr((void*)page, GC_PAGESZ);
+	tagp = &tags.lo;
+	for (;
 			 gc_cheri_getoffset(scan) < GC_PAGESZ;
 			 scan++, mask <<= 1)
 	{
+		if (!mask)
+		{
+			mask = 1ULL;
+			tagp = &tags.hi;
+		}
 		if (gc_cheri_gettag(*scan))
-			tags |= mask;
+			*tagp |= mask;
 	}
 	return tags;
 }
