@@ -1,0 +1,1 @@
+- gc_get_mtbl_indx will return an index even if it's free; must check this, esp in gc_get_obj.
