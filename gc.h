@@ -269,18 +269,25 @@ gc_mtbl_set_map (__gc_capability gc_mtbl * mtbl,
 
 /*
  * Sets an object as marked.
- * Returns non-zero iff error.
+ * Return values:
+ * GC_OBJ_USED: object was used, and mark was set.
+ * GC_OBJ_FREE: object is free, and mark was not set.
+ * GC_OBJ_UNMANAGED: object is not managed by the GC.
+ * GC_OBJ_ALREADY_MARKED: object is used and already marked.
  */
 int
 gc_set_mark (__gc_capability void * ptr);
 
 /*
  * Finds the map index for a given object.
- * Returns non-zero iff error.
+ * Returns non-zero iff the block is not managed by this table, or the table is invalid.
+ * If this returns an index, the block might still not be used.
+ * Always check the type.
  */
 int
 gc_get_mtbl_indx (__gc_capability gc_mtbl * mtbl,
   size_t * indx,
+	uint8_t * out_type,
   __gc_capability void * ptr);
 
 /*
@@ -288,7 +295,12 @@ gc_get_mtbl_indx (__gc_capability gc_mtbl * mtbl,
  * The output index is the index of the object in the block, not the
  * index of the object in the master block table.
  * Only works on master block tables with the SMALL flag.
- * Returns non-zero iff error.
+ *
+ * Return values:
+ * GC_OBJ_USED:	block used, valid block header supplied.
+ * GC_OBJ_FREE: block free, block header will be invalid.
+ * GC_OBJ_UNMANAGED: block unmanaged by this mtbl (invalid address).
+ * GC_INVALID_MTBL: wrong mtbl for this operation (requires SMALL flag).
  */
 int
 gc_get_block (__gc_capability gc_mtbl * mtbl,
@@ -298,11 +310,21 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
 
 /*
  * Returns the actual allocated object, given a pointer to its
- * interior.
- * Returns non-zero on error (i.e., the object is unmanaged by us).
+ * interior, and the status of the object.
+ * The status is one of the following:
+ * GC_OBJ_USED: the object is managed by us, and currently in use.
+ * GC_OBJ_FREE: the object is managed by us, and currently free, so
+ *							could be allocated in the future (value of out_ptr
+ *							indeterminate: undefined if block not allocated).
+ * GC_OBJ_UNMANAGED: the object is unmanaged by the GC.
  */
 int
 gc_get_obj (__gc_capability void * ptr,
 	__gc_capability void * __gc_capability * out_ptr);
+#define GC_OBJ_USED				0
+#define GC_OBJ_FREE				1
+#define GC_OBJ_UNMANAGED	2
+#define GC_OBJ_ALREADY_MARKED			3
+#define GC_INVALID_MTBL 	4
 
 #endif /* _GC_H_ */

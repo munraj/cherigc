@@ -46,7 +46,7 @@ gc_push_roots (void)
 		if (!gc_cheri_gettag(gc_state->regs_c[i]))
 			continue;
 		/* ignore return value of gc_set_mark; always push */
-		gc_set_mark(gc_state->regs_c[i]);
+		gc_set_mark_if_used(gc_state->regs_c[i]);
 		error = gc_stack_push(gc_state->mark_stack_c,
 			gc_state->regs_c[i]);
 		if (error)

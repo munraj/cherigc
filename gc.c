@@ -186,39 +186,52 @@ gc_mtbl_set_map (__gc_capability gc_mtbl * mtbl,
 int
 gc_set_mark (__gc_capability void * ptr)
 {
-  int error;
+  int rc;
   __gc_capability gc_blk * blk;
   size_t indx;
-  uint8_t byte;
+  uint8_t byte, type;
   gc_debug("setting mark for object %s", gc_cap_str(ptr));
   /* try small region */
-  error = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
-  if (!error)
-  {
+  rc = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
+	if (rc == GC_OBJ_FREE)
+		return GC_OBJ_FREE;
+	else if (rc == GC_OBJ_USED)
+	{
+		if ((blk->free >> indx) & 1)
+			return GC_OBJ_FREE;
+		if ((blk->marks >> indx) & 1)
+			return GC_OBJ_ALREADY_MARKED;
     blk->marks |= 1ULL << indx;
     gc_debug("set mark for small object at index %zu", indx);
-  }
-  else
+		return GC_OBJ_USED;
+	}
+  else /* rc == GC_OBJ_UNMANAGED */
   {
     /* try big region */
-    error = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, ptr);
-    if (error)
-      return 1;
+    rc = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, &type, ptr);
+    if (rc)
+      return GC_OBJ_UNMANAGED;
+		if (type == GC_MTBL_FREE)
+			return GC_OBJ_FREE;
+		else if (type == GC_MTBL_USED_MARKED)
+			return GC_OBJ_ALREADY_MARKED;
+		else /* type == GC_MTBL_USED */
     byte = gc_state->mtbl_big.map[indx/4];
     byte |= GC_MTBL_USED_MARKED << ((3-(indx%4))*2);
-    gc_debug("set mark for big object at index %zu", indx);
     gc_state->mtbl_big.map[indx/4] = byte;
+    gc_debug("set mark for big object at index %zu", indx);
+		return GC_OBJ_USED;
   }
 #ifdef GC_COLLECT_STATS
 		gc_state->nmark++;
 		gc_state->nmarkbytes += gc_cheri_getlen(gc_get_obj(ptr));
 #endif /* GC_COLLECT_STATS */
-  return 0;
 }
 
 int
 gc_get_mtbl_indx (__gc_capability gc_mtbl * mtbl,
   size_t * indx,
+	uint8_t * out_type,
   __gc_capability void * ptr)
 {
   size_t logslotsz;
@@ -240,7 +253,10 @@ gc_get_mtbl_indx (__gc_capability gc_mtbl * mtbl,
       (*indx)--;
     }
     else
+		{
+			*out_type = type;
       return 0;
+		}
   }
 }
 
@@ -252,14 +268,12 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
 {
   /* obtain the block header for a pointer */
   size_t indx, logslotsz;
-  uint8_t byte, type;
+  uint8_t type;
   uintptr_t mask;
   if (!(mtbl->flags & GC_MTBL_FLAG_SMALL))
-    return 1;
-  if (gc_get_mtbl_indx(mtbl, &indx, ptr))
-    return 1;
-  byte = mtbl->map[indx/4];
-  type = (byte >> ((3-(indx%4))*2)) & 3;
+    return GC_INVALID_MTBL;
+  if (gc_get_mtbl_indx(mtbl, &indx, &type, ptr))
+    return GC_OBJ_UNMANAGED;
   if (type == 0x1)
   {
     /* this page contains block header */
@@ -269,19 +283,19 @@ gc_get_block (__gc_capability gc_mtbl * mtbl,
       mtbl->slotsz);
     *out_indx = ((uintptr_t)ptr - (uintptr_t)*out_blk) /
       (*out_blk)->objsz;
-    return 0;
+    return GC_OBJ_USED;
   }
   else if (type == GC_MTBL_FREE)
   {
     /* block doesn't exist */
-    return 1;
+    return GC_OBJ_FREE;
   }
   else
   {
     /* impossible */
-    return 1;
+		gc_error("gc_get_block: impossible");
+		return -1;
   }
-  return 0;
 }
 
 int
@@ -443,49 +457,56 @@ int
 gc_get_obj (__gc_capability void * ptr,
 	__gc_capability void * __gc_capability * out_ptr)
 {
-  int error, done;
+  int rc;
   __gc_capability gc_blk * blk;
 	void * base;
   size_t indx, len, i, j;
   uint8_t byte, type;
   /* try small region */
-  error = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
-  if (!error)
+  rc = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
+	if (rc == GC_OBJ_FREE)
+		return GC_OBJ_FREE;
+	if (rc == GC_OBJ_USED)
 	{
+		if ((blk->free >> indx) & 1)
+			return GC_OBJ_FREE;
 		base = (char*)blk + indx*blk->objsz;
 		len = blk->objsz;
+		*out_ptr = gc_cheri_ptr(base, len);
+		return GC_OBJ_USED;
 	}
-  else
-  {
-    /* try big region */
-    error = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, ptr);
-    if (error)
-      return 1;
-		base = (char*)gc_cheri_getbase(gc_state->mtbl_big.base) +
-			indx*GC_BIGSZ;
-		/* determine length of big object */
-		len = GC_BIGSZ;
-		if (indx+1 < gc_state->mtbl_big.nslots)
+	/* else rc == GC_OBJ_UNMANAGED: */
+	/* try big region */
+	rc = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, &type, ptr);
+	if (rc)
+		return GC_OBJ_UNMANAGED;
+	base = (char*)gc_cheri_getbase(gc_state->mtbl_big.base) +
+		indx*GC_BIGSZ;
+	len = GC_BIGSZ;
+	if (type == GC_MTBL_FREE)
+	{
+		*out_ptr = gc_cheri_ptr(base, len);
+		return GC_OBJ_FREE;
+	}
+	/* else type == GC_MTBL_USED or GC_MTBL_USED_MARKED */
+	/* determine length of big object */
+	indx++;
+	for (i=indx/4; i<gc_state->nslots/4; i++)
+	{
+		byte = gc_state->mtbl_big.map[i];
+		for (j=(i==indx/4)?indx%4:0; j<4; j++)
 		{
-			indx++;
-			for (i=indx/4, done=0; ;i++)
+			type = (byte >> ((3-j)*2)) & 3;
+			if (type == GC_MTBL_CONT)
+				len += GC_BIGSZ;
+			else
 			{
-				byte = gc_state->mtbl_big.map[i];
-				for (j=(i==indx/4)?indx%4:0; j<4; j++)
-				{
-					type = (byte >> ((3-j)*2)) & 3;
-					if (type == GC_MTBL_CONT)
-						len += GC_BIGSZ;
-					else
-					{
-						done = 1;
-						break;
-					}
-				}
-				if (done) break;
+				*out_ptr = gc_cheri_ptr(base, len);
+				return GC_OBJ_USED;
 			}
 		}
-  }
+	}
+	/* reached end of table */
 	*out_ptr = gc_cheri_ptr(base, len);
-  return 0;
+	return GC_OBJ_USED;
 }
