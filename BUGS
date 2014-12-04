@@ -1,3 +1,4 @@
 - gc_get_page_tags not being used properly: we want to get the tags for an object, but are asking for the tags for a page.
 - unlimited cap leaking through
 - deref bottom of stack fails?
+- tagged but segfaulty unmanaged caps should be handled properly...
