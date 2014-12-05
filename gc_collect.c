@@ -1,6 +1,7 @@
 #include "gc_collect.h"
 #include "gc_debug.h"
 #include "gc.h"
+#include "gc_cheri.h"
 
 void
 gc_collect (void)
@@ -14,7 +15,7 @@ gc_collect (void)
 			gc_resume_sweeping();
 			break;
 		case GC_MS_NONE:
-			gc_debug("beginning a new collection\n");
+			gc_debug("beginning a new collection");
 #ifdef GC_COLLECT_STATS
 			gc_state->nmark = 0;
 			gc_state->nmarkbytes = 0;
@@ -22,6 +23,13 @@ gc_collect (void)
 			gc_state->nsweepbytes = 0;
 #endif /* GC_COLLECT_STATS */
 			gc_start_marking();
+			/* because we're not incremental yet: */
+			/*while (gc_state->mark_state != GC_MS_SWEEP)
+				gc_resume_marking();
+			while (gc_state->mark_state != GC_MS_NONE)
+				gc_resume_sweeping();*/
+			while (gc_state->mark_state != GC_MS_NONE)
+				gc_resume_marking();
 			break;
 	}
 }
@@ -137,10 +145,19 @@ gc_resume_marking (void)
 	__gc_capability void * obj;
 	uint64_t len;
 	gc_tags tags;
+	if (gc_state->mark_state == GC_MS_SWEEP)
+	{
+		gc_resume_sweeping();
+		return;
+	}
 	empty = gc_stack_pop(gc_state->mark_stack_c,
 		gc_cheri_ptr(&obj, sizeof(__gc_capability void*)));
 	if (empty)
 	{
+#ifdef GC_COLLECT_STATS
+		gc_debug("mark phase complete (marked %zu/%zu object(s), total %zu/%zu bytes)",
+			gc_state->nmark, gc_state->nalloc, gc_state->nmarkbytes, gc_state->nallocbytes);
+#endif /* GC_COLLECT_STATS */
 		gc_start_sweeping();
 		return;
 	}
@@ -158,16 +175,21 @@ gc_resume_marking (void)
 		 * obviously can't set its mark bit. XXX: Unmanaged cyclic objects
 		 * will throw the GC into an infinite loop...
 		 */
-		gc_debug("popped off the mark stack, raw: %s\n", gc_cap_str(obj));
+		gc_debug("popped off the mark stack, raw: %s", gc_cap_str(obj));
 		rc = gc_get_obj(obj, gc_cheri_ptr(&obj,
 			sizeof(__gc_capability void *)));
 		if (rc == GC_OBJ_FREE)
 		{
 			/* impossible: a free object is never pushed */
-			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE\n");
+			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE");
 		}
 		else if (rc == GC_OBJ_UNMANAGED)
 		{
+			if (!GC_ALIGN(gc_cheri_getbase(obj)))
+			{
+				gc_debug("warning: popped pointer is near-NULL");
+				return;
+			}
 			/* XXX: object is unmanaged by the GC; use its native base and
 			 * length (GROW cap in both directions to align - correct?) */
 			obj = gc_cheri_ptr(GC_ALIGN(gc_cheri_getbase(obj)),
@@ -176,7 +198,7 @@ gc_resume_marking (void)
 			 * to avoid cycles (could implement as perm bit in scan below;
 		   * this would bound the number of scans of the same obj) */
 		}
-		gc_debug("popped off the mark stack and reconstructed: %s\n",
+		gc_debug("popped off the mark stack and reconstructed: %s",
 			gc_cap_str(obj));
 		/*
 		 * Mark children of object.
@@ -201,11 +223,158 @@ gc_resume_marking (void)
 void
 gc_start_sweeping (void)
 {
+	__gc_capability void * ptr;
+	int error;
+	gc_debug("begin sweeping");
 	gc_state->mark_state = GC_MS_SWEEP;
+	/* push the mtbls to consider on to the sweep stack */
+	ptr = &gc_state->mtbl;
+	ptr = gc_cheri_incbase(ptr, gc_cheri_getoffset(ptr));
+	ptr = gc_cheri_setoffset(ptr, 0);
+	ptr = gc_cheri_setlen(ptr, sizeof(gc_mtbl));
+	error = gc_stack_push(gc_state->sweep_stack_c, ptr);
+	if (error)
+	{
+		gc_error("sweep stack overflow");
+		return;
+	}
+	ptr = &gc_state->mtbl_big;
+	ptr = gc_cheri_incbase(ptr, gc_cheri_getoffset(ptr));
+	ptr = gc_cheri_setoffset(ptr, 0);
+	ptr = gc_cheri_setlen(ptr, sizeof(gc_mtbl));
+	error = gc_stack_push(gc_state->sweep_stack_c, ptr);
+		gc_debug("pushed %s\n",gc_cap_str(ptr));
+	if (error)
+	{
+		gc_error("sweep stack overflow");
+		return;
+	}
 	gc_resume_sweeping();
 }
 
 void
 gc_resume_sweeping (void)
 {
+	int empty, i, j, small, hdrbits, freecont;
+	__gc_capability gc_mtbl * mtbl;
+	__gc_capability gc_blk * blk;
+	uint8_t byte, type, mask;
+	void * addr;
+	uint64_t tmp;
+	empty = gc_stack_pop(gc_state->sweep_stack_c, gc_cap_addr(&mtbl));
+	if (empty)
+	{
+		/* collection complete: */
+#ifdef GC_COLLECT_STATS
+			gc_debug("sweep phase complete (swept %zu/%zu object(s), total recovered %zu/%zu bytes)",
+				gc_state->nsweep, gc_state->nalloc, gc_state->nsweepbytes, gc_state->nallocbytes);
+#endif /* GC_COLLECT_STATS */
+		gc_state->mark_state = GC_MS_NONE;
+#ifdef GC_COLLECT_STATS
+		gc_state->nalloc -= gc_state->nsweep;
+		gc_state->nallocbytes -= gc_state->nsweepbytes;
+#endif /* GC_COLLECT_STATS */
+		return;
+	}
+	else
+	{
+		gc_debug("mtbl is %s\n", gc_cap_str(mtbl));
+		small = mtbl->flags & GC_MTBL_FLAG_SMALL;
+		gc_debug("type: %d\n", small);
+		/* walk the mtbl, making objects and entire blocks free */
+		freecont = 0;
+		for (i=0; i<mtbl->nslots/4; i++)
+		{
+			byte = mtbl->map[i];
+			for (j=0; j<4; j++)
+			{
+				type = (byte >> ((3-j)*2)) & 3;
+				addr = (char*)gc_cheri_getbase(mtbl->base) +
+						(4*i+j)*mtbl->slotsz;
+				if (!small)
+				{
+					if (type == GC_MTBL_CONT && freecont)
+					{
+						mask = ~(3 << ((3-j)*2));
+						byte &= mask; 
+#ifdef GC_COLLECT_STATS
+						gc_state->nsweepbytes += GC_BIGSZ;
+#endif /* GC_COLLECT_STATS */
+					}
+					else if (type == GC_MTBL_USED)
+					{
+						/* used but not marked; free entire block */
+						mask = ~(3 << ((3-j)*2));
+						byte &= mask; 
+						/* next iterations will free continuation data */
+						freecont = 1;
+#ifdef GC_COLLECT_STATS
+						gc_state->nsweep++;
+						gc_state->nsweepbytes += GC_BIGSZ;
+#endif /* GC_COLLECT_STATS */
+						gc_debug("swept entire large block at address %p", addr);
+					}
+					else if (type == GC_MTBL_USED_MARKED)
+					{
+						mask = ~(3 << ((3-j)*2));
+						byte &= mask; 
+						mask = (GC_MTBL_USED << ((3-j)*2));
+						byte |= mask;
+						freecont = 0;
+					}
+					else if (freecont)
+					{
+						freecont = 0;
+					}
+				}
+				else
+				{
+					blk = gc_cheri_ptr(addr, GC_BLK_HDRSZ);
+					/* small mtbl */
+					if (type == GC_MTBL_USED)
+					{
+						hdrbits = (GC_BLK_HDRSZ + blk->objsz - 1) / blk->objsz;
+#ifdef GC_COLLECT_STATS
+						/*
+						 *		free		mark		NOR		meaning
+						 *		 0			 0			 1			swept (count)
+						 *		 0			 1			 0			alive (don't count)
+						 *		 1			 0			 0			don't care
+						 *		 1			 1			 0			"impossible"
+						 */
+						tmp = ~(blk->free | blk->marks);
+						tmp &= ((1ULL << (GC_PAGESZ / blk->objsz)) - 1ULL);
+						tmp &= ~((1ULL << hdrbits) - 1ULL);
+						for (;tmp;tmp>>=1)
+						{
+							if (tmp&1)
+							{
+								gc_state->nsweep++;
+								gc_state->nsweepbytes += blk->objsz;
+							}
+						}
+#endif /* GC_COLLECT_STATS */
+						if (!blk->marks)
+						{
+							/* entire block free */
+							mask = ~(3 << ((3-j)*2));
+							byte &= mask; 
+							gc_debug("swept entire block storing objects of size %zu at address %s", blk->objsz, gc_cap_str(blk));
+						}
+						else
+						{
+							/* make free all those things that aren't marked */
+							blk->marks = 0;
+							blk->free = ~blk->marks;
+							blk->free &= ((1ULL << (GC_PAGESZ / blk->objsz)) - 1ULL);
+							/* account for the space taken up by the block header */
+							blk->free &= ~((1ULL << hdrbits) - 1ULL);
+							gc_debug("swept some objects of size %zu in block %s", blk->objsz, gc_cap_str(blk));
+						}
+					}
+				}
+			}
+			mtbl->map[i] = byte;
+		}
+	}
 }

@@ -45,11 +45,10 @@ extern char end;
  * Technically undefined behaviour, and non-portable.
  * We break out of infinite segfaulting by using setjmp/longjmp.
  */
-#include <signal.h>
-#include <setjmp.h>
-static jmp_buf gc_jmp_buf;
+jmp_buf gc_jmp_buf;
+void (*gc_oldfn)(int);
 
-static void
+void
 gc_sigsegv_handler (int p)
 {
 	longjmp(gc_jmp_buf, 1);
@@ -62,7 +61,6 @@ gc_get_static_region (void)
 	char * base;
 	char deref;
 	size_t len;
-	static void (*oldfn)(int);
 	static char * good_base;
 	static char * top;
 	__gc_capability void * ret;
@@ -71,8 +69,8 @@ gc_get_static_region (void)
 	if (!rc) /* direct return from setjmp */
 	{
 		top = GC_ALIGN(&end);
-		oldfn = signal(SIGSEGV, gc_sigsegv_handler);
-		if (oldfn == SIG_ERR)
+		gc_oldfn = signal(SIGSEGV, gc_sigsegv_handler);
+		if (gc_oldfn == SIG_ERR)
 		{
 			gc_error("SIG_ERR registering handler");
 			return NULL;
@@ -93,10 +91,10 @@ gc_get_static_region (void)
 	else
 	{
 		/* restore previous handler */
-		oldfn = signal(SIGSEGV, oldfn);
-		if (oldfn == SIG_ERR)
+		gc_oldfn = signal(SIGSEGV, gc_oldfn);
+		if (gc_oldfn == SIG_ERR)
 		{
-			gc_error("SIG_ERR restoring oldfn");
+			gc_error("SIG_ERR restoring gc_oldfn");
 			return NULL;
 		}
 		len = top - good_base;

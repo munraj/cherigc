@@ -19,26 +19,33 @@ int main ()
 		//x = gc_cheri_ptr((uint64_t)x+50000000, 10);
 		printf("allocated: %s\n", gc_cap_str(x));
 		int rc;
-		rc = gc_set_mark(x);//, gc_cheri_ptr(&y, sizeof y));
+		//rc = gc_set_mark(x);//, gc_cheri_ptr(&y, sizeof y));
 		printf("rc is %d\n", rc);
 		memset((void*)x, 0, gc_cheri_getlen(x));
 		x[62] = gc_cheri_ptr(0x1,0x2);
-		x[121] = gc_cheri_ptr(0x1,0x2);
-		x[127] = gc_cheri_ptr(0x1,0x2);
-		x[63] = gc_cheri_ptr(0x1,0x2);
-		x[16] = gc_cheri_ptr(0x1,0x2);
-		x[15] = gc_cheri_ptr(0x1,0x2);
-		x[14] = gc_cheri_ptr(0x1,0x2);
+		x[121] = gc_cheri_ptr(0x1,0x3);
+		x[127] = gc_cheri_ptr(0x1,0x4);
+		x[63] = gc_cheri_ptr(0x1,0x5);
+		x[16] = gc_cheri_ptr(0x1,0x6);
+		x[15] = gc_cheri_ptr(0x1,0x7);
+		x[14] = gc_cheri_ptr(0x1,0x8);
+		gc_malloc(71);
+		gc_malloc(72);
+		gc_malloc(73);
+		gc_malloc(74);
+		x[12] = gc_malloc(75)+8;
+		int i = 53;
+		x[13] = gc_cheri_ptr(&i, sizeof i);
 		gc_tags tags;
 		tags = gc_get_page_tags(x);
 		printf("tags are 0x%llx 0x%llx\n", tags.hi, tags.lo);
-		gc_scan_tags(x, tags);
+		//gc_scan_tags(x, tags);
 		printf("reconstructed: %s\n", gc_cap_str(y));
 		gc_malloc(0);
-		do
-		{
-			gc_collect();
-		} while (gc_state->mark_state != GC_MS_NONE);
+		gc_print_map(&gc_state->mtbl_big);
+		gc_collect();
+		gc_print_map(&gc_state->mtbl_big);
+		gc_print_map(&gc_state->mtbl);
 		exit(1);
 	}
 /*

@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <machine/cheri.h>
 #include <machine/cheric.h>
+#include <setjmp.h>
+#include <signal.h>
 
 #define __gc_capability __capability
 #define gc_cheri_getbase(x)		((uint64_t)cheri_getbase(x))
@@ -15,6 +17,8 @@
 #define gc_cheri_setlen		cheri_setlen
 #define gc_cheri_setoffset		cheri_setoffset
 #define gc_cheri_cleartag		cheri_cleartag
+
+#define gc_cap_addr(x) (gc_cheri_ptr((void*)(x),sizeof(__gc_capability void *)))
 
 /*
  * When the GC is entered:
@@ -105,5 +109,11 @@ gc_get_stack_bottom (void);
 
 __gc_capability void *
 gc_get_static_region (void);
+
+extern jmp_buf gc_jmp_buf;
+extern void (*gc_oldfn)(int);
+void
+gc_sigsegv_handler (int p);
+
 
 #endif /* _GC_CHERI_H_ */

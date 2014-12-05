@@ -1,6 +1,7 @@
 .include "cheridefs.mk"
 OBJS=gc.o gc_collect.o gc_scan.o gc_stack.o gc_debug.o gc_cheri.o
 CFLAGS+=-g
+CFLAGS+=-DGC_COLLECT_STATS
 
 .PHONY: all clean lib test push gctest
 all: gctest

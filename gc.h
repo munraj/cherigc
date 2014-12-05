@@ -199,11 +199,19 @@ struct gc_state_s
 
 	int mark_state;
 	gc_stack mark_stack;
+	gc_stack sweep_stack;
 	
 	/* pointer to stack with correct bound */
 	__gc_capability gc_stack * mark_stack_c;
+	__gc_capability gc_stack * sweep_stack_c;
 
 #ifdef GC_COLLECT_STATS
+	/* number of objects currently allocated (hopefully) */
+	size_t nalloc;
+
+	/* number of bytes currently allocated (hopefully) */
+	size_t nallocbytes;
+
 	/* number of objects marked */
 	size_t nmark;
 

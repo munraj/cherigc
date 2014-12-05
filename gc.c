@@ -99,10 +99,14 @@ gc_init (void)
 
   if (gc_stack_init(&gc_state->mark_stack, GC_STACKSZ))
     gc_error("gc_init_stack(%zu)", GC_STACKSZ);
-	
 	gc_state->mark_stack_c = gc_cheri_ptr((void*)&gc_state->mark_stack,
 		sizeof(gc_state->mark_stack));
 
+	if (gc_stack_init(&gc_state->sweep_stack, GC_PAGESZ))
+    gc_error("gc_init_stack(%zu)", GC_PAGESZ);
+	gc_state->sweep_stack_c = gc_cheri_ptr((void*)&gc_state->sweep_stack,
+		sizeof(gc_state->sweep_stack));
+	
 	gc_state->stack_bottom = gc_get_stack_bottom();
 	gc_state->static_region = gc_get_static_region();
 
@@ -190,10 +194,11 @@ gc_set_mark (__gc_capability void * ptr)
   __gc_capability gc_blk * blk;
   size_t indx;
   uint8_t byte, type;
-  gc_debug("setting mark for object %s", gc_cap_str(ptr));
+  gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
   /* try small region */
   rc = gc_get_block(&gc_state->mtbl, &blk, &indx, ptr);
+  gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc,indx);
 	if (rc == GC_OBJ_FREE)
 		return GC_OBJ_FREE;
 	else if (rc == GC_OBJ_USED)
@@ -203,6 +208,10 @@ gc_set_mark (__gc_capability void * ptr)
 		if ((blk->marks >> indx) & 1)
 			return GC_OBJ_ALREADY_MARKED;
     blk->marks |= 1ULL << indx;
+#ifdef GC_COLLECT_STATS
+		gc_state->nmark++;
+		gc_state->nmarkbytes += blk->objsz;
+#endif /* GC_COLLECT_STATS */
     gc_debug("set mark for small object at index %zu", indx);
 		return GC_OBJ_USED;
 	}
@@ -210,23 +219,27 @@ gc_set_mark (__gc_capability void * ptr)
   {
     /* try big region */
     rc = gc_get_mtbl_indx(&gc_state->mtbl_big, &indx, &type, ptr);
+		gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
     if (rc)
       return GC_OBJ_UNMANAGED;
 		if (type == GC_MTBL_FREE)
 			return GC_OBJ_FREE;
 		else if (type == GC_MTBL_USED_MARKED)
 			return GC_OBJ_ALREADY_MARKED;
-		else /* type == GC_MTBL_USED */
+		/* else type == GC_MTBL_USED */
     byte = gc_state->mtbl_big.map[indx/4];
+		/* XXX: only because USED_MARKED is 0b11 does this work */
     byte |= GC_MTBL_USED_MARKED << ((3-(indx%4))*2);
     gc_state->mtbl_big.map[indx/4] = byte;
+#ifdef GC_COLLECT_STATS
+		gc_state->nmark++;
+		gc_get_obj(ptr, gc_cheri_ptr(&ptr,
+			sizeof(__gc_capability void *)));
+		gc_state->nmarkbytes += gc_cheri_getlen(ptr);
+#endif /* GC_COLLECT_STATS */
     gc_debug("set mark for big object at index %zu", indx);
 		return GC_OBJ_USED;
   }
-#ifdef GC_COLLECT_STATS
-		gc_state->nmark++;
-		gc_state->nmarkbytes += gc_cheri_getlen(gc_get_obj(ptr));
-#endif /* GC_COLLECT_STATS */
 }
 
 int
@@ -303,8 +316,11 @@ int
 gc_follow_free (__gc_capability gc_blk ** blk)
 {
   for (; *blk; *blk=(*blk)->next)
+	{
+		gc_debug("BLK: free: 0x%llx",(*blk)->free);
     if ((*blk)->free)
       return 0;
+	}
   return 1;
 }
 
@@ -348,7 +364,7 @@ gc_malloc_entry (size_t sz)
   __gc_capability gc_blk * blk;
   int error, roundsz, logsz, hdrbits, indx;
   gc_debug("servicing allocation request of %zu bytes", sz);
-  if (GC_ROUND_BIGSZ(sz) >= GC_BIGSZ)
+  if (GC_ROUND_POW2(sz) >= GC_BIGSZ)
   {
     roundsz = GC_ROUND_BIGSZ(sz);
     gc_debug("request %zu is big (rounded %zu)", sz, roundsz);
@@ -394,7 +410,7 @@ gc_malloc_entry (size_t sz)
       sz, roundsz, logsz);
     blk = gc_state->heap[logsz];
     error = gc_follow_free(&blk); 
-    if (!blk)
+    if (error)
     {
       gc_debug("allocating new block");
       error = gc_alloc_free_page(&gc_state->mtbl, &blk, GC_MTBL_USED);
@@ -425,6 +441,13 @@ gc_malloc_entry (size_t sz)
     ptr = gc_cheri_setlen(ptr, sz);
   }
   gc_debug("returning %s", gc_cap_str(ptr));
+#ifdef GC_COLLECT_STATS
+	if (ptr)
+	{
+		gc_state->nalloc++;
+		gc_state->nallocbytes += gc_cheri_getlen(ptr);
+	}
+#endif /* GC_COLLECT_STATS */
 	return ptr;
 }
 

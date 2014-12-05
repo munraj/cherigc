@@ -32,7 +32,7 @@ gc_get_page_tags (__gc_capability void * page)
 	mask = 1ULL;
 	tagp = &tags.lo;
 	for (;
-			 gc_cheri_getoffset(scan) < GC_PAGESZ;
+			 gc_cheri_getoffset(scan) < gc_cheri_getlen(page);
 			 scan++, mask <<= 1)
 	{
 		if (!mask)
