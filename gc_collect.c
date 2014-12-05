@@ -84,8 +84,8 @@ gc_push_roots (void)
    * This isn't marked as it's not an object that's been allocated
    * by the collector.
    */
-	/*gc_debug("root: stack: %s", gc_cap_str(gc_state->stack));
-	gc_stack_push(gc_state->mark_stack_c, gc_state->stack);*/
+	gc_debug("root: stack: %s", gc_cap_str(gc_state->stack));
+	gc_stack_push(gc_state->mark_stack_c, gc_state->stack);
 }
 
 
@@ -141,7 +141,7 @@ void
 gc_resume_marking (void)
 {
 	int empty, rc;
-	size_t i;
+	size_t i, off;
 	__gc_capability void * obj;
 	uint64_t len;
 	gc_tags tags;
@@ -207,12 +207,15 @@ gc_resume_marking (void)
 		 * Tag bits are obtained for each page spanned by the parent.
 		 */
 		len = gc_cheri_getlen(obj);
+		off = 0;
 		for (i=0; i<len/GC_PAGESZ; i++)
 		{
-			tags = gc_get_page_tags(obj);
+			tags = gc_get_page_tags(
+				gc_cheri_setlen(gc_cheri_incbase(obj, off), GC_PAGESZ));
 			gc_scan_tags(obj, tags);
-			obj += GC_PAGESZ;
+			off += GC_PAGESZ;
 		}
+		obj += off;
 		tags = gc_get_page_tags(obj);
 		tags.lo &= (1 << (len%GC_PAGESZ)) - 1;
 		tags.hi = 0;

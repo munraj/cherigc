@@ -2,16 +2,34 @@
 #include <gc_debug.h>
 #include <gc_collect.h>
 #include <gc_scan.h>
-#include <stdio.h>
 
 #include <machine/cheri.h>
 #include <machine/cheric.h>
 
+#include <stdio.h>
+#include <string.h>
+
+typedef struct
+{
+	int v[100];
+	__gc_capability void * p[10];
+} S;
+
 int main ()
 {
 	gc_init();
-	__gc_capability void * x;
+	__gc_capability S * x;
+	x = gc_malloc(sizeof *x);
+	x->p[0] = x;
+	/* set the stack top because we're calling gc_collect outside of the GC */
+	void * local;
+	uintptr_t localp = GC_ALIGN(&local);
+	gc_state->stack =
+		gc_cheri_ptr(localp, (uintptr_t)gc_state->stack_bottom-localp);
+	printf("stack is %s\n", gc_cap_str(gc_state->stack));
 	gc_collect();
+	printf("x is %s\n", gc_cap_str(x));
+	//printf("&x is %s\n", gc_cap_str(gc_cap_addr(&x)));
 	return 0;
 }
 
@@ -30,13 +48,13 @@ int old_main ()
 		//rc = gc_set_mark(x);//, gc_cheri_ptr(&y, sizeof y));
 		printf("rc is %d\n", rc);
 		memset((void*)x, 0, gc_cheri_getlen(x));
-		x[62] = gc_cheri_ptr(0x1,0x2);
-		x[121] = gc_cheri_ptr(0x1,0x3);
-		x[127] = gc_cheri_ptr(0x1,0x4);
-		x[63] = gc_cheri_ptr(0x1,0x5);
-		x[16] = gc_cheri_ptr(0x1,0x6);
-		x[15] = gc_cheri_ptr(0x1,0x7);
-		x[14] = gc_cheri_ptr(0x1,0x8);
+		x[62] = gc_cheri_ptr((void*)0x1,0x2);
+		x[121] = gc_cheri_ptr((void*)0x1,0x3);
+		x[127] = gc_cheri_ptr((void*)0x1,0x4);
+		x[63] = gc_cheri_ptr((void*)0x1,0x5);
+		x[16] = gc_cheri_ptr((void*)0x1,0x6);
+		x[15] = gc_cheri_ptr((void*)0x1,0x7);
+		x[14] = gc_cheri_ptr((void*)0x1,0x8);
 		struct s
 		{
 			int i;

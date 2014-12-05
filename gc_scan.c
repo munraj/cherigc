@@ -35,6 +35,7 @@ gc_get_page_tags (__gc_capability void * page)
 			 gc_cheri_getoffset(scan) < gc_cheri_getlen(page);
 			 scan++, mask <<= 1)
 	{
+		gc_debug("scan: %s\n", gc_cap_str(scan));
 		if (!mask)
 		{
 			mask = 1ULL;
