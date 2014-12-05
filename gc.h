@@ -30,7 +30,7 @@
  */ 
 #define GC_LOG_BIGSZ	 (10)
 #define GC_BIGSZ	 		 ((size_t) (1 << GC_LOG_BIGSZ))
-#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-6)
+#define GC_LOG_MINSZ	 (GC_LOG_BIGSZ-3)
 #define GC_MINSZ		   ((size_t) (1 << GC_LOG_MINSZ))
 
 #define GC_LOG_PAGESZ	 12
@@ -127,7 +127,39 @@ typedef struct gc_blk_s
 } gc_blk;
 #define GC_BLK_HDRSZ sizeof(gc_blk)
 
-/* master block table */
+/*
+ * "Master block table".
+ *
+ * mtbls are used by the GC to compute address-to-object mappings
+ * and check or set the status of objects (marked, used, free, etc).
+ * Each mtbl represents a "slab" or "region" of memory, optimized
+ * for a certain size.
+ *
+ * Each master block table contains a base address, a size, a bitmap
+ * and a type. The base always points to a chunk of memory of size
+ * nslots*slotsz. When the type is SMALL, every slotsz-sized chunk
+ * has a block header (gc_blk). When the type is not SMALL, the entire
+ * slab is contiguous data. The bitmap behaves differently in both
+ * cases. For SMALL mtbls, the bitmap only determines whether an
+ * entire block of size slotsz is free or not. Mark bits are stored
+ * in the gc_blk header itself. For not SMALL mtbls, the bitmap
+ * determines the individual mark status of slotsz-sized objects.
+ *
+ * As described below, the "bitmap" is actually a two-bit map, so that
+ * each byte contains 4 entries. The bitmap will typically be of size
+ * GC_PAGESZ, giving GC_PAGESZ*4 entries.
+ *
+ * Currently gc_state maintains only two mtbls, one for small objects
+ * (i.e. with block headers) and one for large objects. In the future,
+ * gc_track() will use information given by libprocstat to create
+ * mtbls to track even "unmanaged" memory. This should be efficient
+ * because the number of mtbls needed is roughly linear in the
+ * number of different virtual memory mappings: each contiguous paged
+ * area can be managed by a single mtbl (roughly speaking; it depends
+ * on the slotsz, because nslots is usually fixed to GC_PAGESZ*4).
+ * Typically it might be expected that each mtbl tracks 1-64MB of
+ * memory, giving an overhead of 0.39-0.006%.
+ */
 typedef struct gc_mtbl_s
 {
 	__gc_capability void * base;

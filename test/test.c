@@ -9,6 +9,14 @@
 
 int main ()
 {
+	gc_init();
+	__gc_capability void * x;
+	gc_collect();
+	return 0;
+}
+
+int old_main ()
+{
 	{
 		gc_init();
 		__gc_capability void * __capability * x, * y;
@@ -29,7 +37,14 @@ int main ()
 		x[16] = gc_cheri_ptr(0x1,0x6);
 		x[15] = gc_cheri_ptr(0x1,0x7);
 		x[14] = gc_cheri_ptr(0x1,0x8);
-		gc_malloc(71);
+		struct s
+		{
+			int i;
+			__capability void * value;
+		};
+		__capability struct s * z;
+		z=gc_malloc(sizeof *z);
+		z->value = z;
 		gc_malloc(72);
 		gc_malloc(73);
 		gc_malloc(74);

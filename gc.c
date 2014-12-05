@@ -364,6 +364,11 @@ gc_malloc_entry (size_t sz)
   __gc_capability gc_blk * blk;
   int error, roundsz, logsz, hdrbits, indx;
   gc_debug("servicing allocation request of %zu bytes", sz);
+  if (sz < GC_MINSZ)
+  {
+    gc_debug("request %zu is too small, rounding up to %zu", sz, GC_MINSZ);
+		sz = GC_MINSZ;
+  }
   if (GC_ROUND_POW2(sz) >= GC_BIGSZ)
   {
     roundsz = GC_ROUND_BIGSZ(sz);
@@ -396,11 +401,6 @@ gc_malloc_entry (size_t sz)
         gc_mtbl_set_map(&gc_state->mtbl_big,
           indx+1, indx+roundsz/GC_BIGSZ-1, GC_MTBL_CONT);
     }
-  }
-  else if (sz < GC_MINSZ)
-  {
-    gc_debug("request %zu is too small", sz);
-    ptr = NULL;
   }
   else
   {

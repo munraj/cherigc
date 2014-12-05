@@ -278,9 +278,7 @@ gc_resume_sweeping (void)
 	}
 	else
 	{
-		gc_debug("mtbl is %s\n", gc_cap_str(mtbl));
 		small = mtbl->flags & GC_MTBL_FLAG_SMALL;
-		gc_debug("type: %d\n", small);
 		/* walk the mtbl, making objects and entire blocks free */
 		freecont = 0;
 		for (i=0; i<mtbl->nslots/4; i++)
@@ -298,7 +296,7 @@ gc_resume_sweeping (void)
 						mask = ~(3 << ((3-j)*2));
 						byte &= mask; 
 #ifdef GC_COLLECT_STATS
-						gc_state->nsweepbytes += GC_BIGSZ;
+						gc_state->nsweepbytes += mtbl->slotsz;
 #endif /* GC_COLLECT_STATS */
 					}
 					else if (type == GC_MTBL_USED)
@@ -310,7 +308,7 @@ gc_resume_sweeping (void)
 						freecont = 1;
 #ifdef GC_COLLECT_STATS
 						gc_state->nsweep++;
-						gc_state->nsweepbytes += GC_BIGSZ;
+						gc_state->nsweepbytes += mtbl->slotsz;
 #endif /* GC_COLLECT_STATS */
 						gc_debug("swept entire large block at address %p", addr);
 					}

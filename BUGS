@@ -2,3 +2,4 @@
 - unlimited cap leaking through
 - deref bottom of stack fails?
 - tagged but segfaulty unmanaged caps should be handled properly...
+- large objects are allocated by bump-the-pointer. The pointer is never reset (not even after collection) and doesn't check whether any of the blocks to allocate are actually free. So in this sense no space is freed up after a collection. This needs to be fixed; fragmentation is also going to be an issue with large objects.
