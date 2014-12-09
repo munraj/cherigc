@@ -3,14 +3,13 @@
 
 #include "gc_cheri.h"
 
-void gc_scan_region (__gc_capability void * region);
-
-typedef struct gc_tags_s
+struct gc_tags
 {
-	uint64_t lo, hi;
-} gc_tags;
+	uint64_t	tg_lo;
+	uint64_t	tg_hi;
+};
 
-gc_tags
-gc_get_page_tags (__gc_capability void * page);
+void		gc_scan_region(_gc_cap void *region);
+struct gc_tags	gc_get_page_tags(_gc_cap void *page);
 
-#endif /* _GC_SCAN_H_ */
+#endif /* !_GC_SCAN_H_ */

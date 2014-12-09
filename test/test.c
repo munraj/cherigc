@@ -9,6 +9,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef GC_USE_LIBPROCSTAT
+#include <kvm.h>
+#include <sys/param.h>
+#include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
+#include <libprocstat.h>
+#include <unistd.h>
+#endif /* GC_USE_LIBPROCSTAT */
+
 typedef struct
 {
 	int v[100];
@@ -18,6 +29,39 @@ typedef struct
 int main ()
 {
 	gc_init();
+#ifdef GC_USE_LIBPROCSTAT
+	struct procstat * ps;
+	struct kinfo_vmentry * kv;
+	struct kinfo_proc * kp;
+	int cnt;
+	ps = procstat_open_sysctl();
+	if (!ps)
+	{
+		gc_error("procstat_open\n");
+		return 1;
+	}
+	cnt = 0;
+	kp = procstat_getprocs(ps, KERN_PROC_PID, getpid(), &cnt);
+	if (!kp)
+	{
+		gc_error("procstat_getprocs\n");
+		return 1;
+	}
+	kv = procstat_getvmmap(ps, kp, &cnt);
+	if (!kv)
+	{
+		gc_error("procstat_getvmmap\n");
+		return 1;
+	}
+	int i;
+	for (i=0; i<cnt; i++)
+		printf("[%d] type: %d, start: 0x%llx, end: 0x%llx (sz: %llu%c), prot: 0x%llx\n",
+			i, kv[i].kve_type, kv[i].kve_start, kv[i].kve_end, SZFORMAT(kv[i].kve_end - kv[i].kve_start), kv[i].kve_protection);
+	procstat_freevmmap(ps, kv);
+	procstat_freeprocs(ps, kp);
+	procstat_close(ps);
+	exit(0);
+#endif /* GC_USE_LIBPROCSTAT */
 	__gc_capability S * x;
 	x = gc_malloc(sizeof *x);
 	x->p[0] = x;

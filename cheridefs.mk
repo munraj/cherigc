@@ -4,6 +4,7 @@ CHERI_SYSROOT:=$(CHERI_SDK)/sysroot
 CHERI_SDK_BIN:=$(CHERI_SDK)/bin
 CHERI_SANDBOX_LD:=$(CHERI_SYSROOT)/usr/libdata/ldscripts/sandbox.ld
 CFLAGS=
+LDADD=
 CFLAGS+=-O2
 
 CC:=$(CHERI_SDK_BIN)/clang
@@ -23,3 +24,7 @@ CHERI_PUSH_DIR=/home/mbv21/tmp
 
 MACHINE_ARCH=mips64
 MACHINE=mips
+
+# libprocstat
+CFLAGS+=-DGC_USE_LIBPROCSTAT
+LDADD+=-lprocstat -lelf -lkvm -lutil

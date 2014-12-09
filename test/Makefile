@@ -11,7 +11,7 @@ all: gctest
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 gctest: ../libcherigc.a $(OBJS)
-	$(LD) $(LDFLAGS) -o gctest $(OBJS) ../libcherigc.a
+	$(LD) $(LDFLAGS) -o gctest $(OBJS) ../libcherigc.a $(LDADD)
 
 clean:
 	rm -f *.o gctest
