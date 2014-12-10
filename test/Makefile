@@ -1,8 +1,8 @@
 .include "../cheridefs.mk"
 LD=$(CC)
 LDFLAGS=
-CFLAGS+=-I..
-OBJS=test.o
+CFLAGS+=-I.. -DTF_FORK
+OBJS=test.o framework.o
 
 .PHONY: all clean
 all: gctest

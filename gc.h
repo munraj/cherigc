@@ -199,7 +199,7 @@ extern _gc_cap struct gc_state	*gc_state_c;
 /* Calculate the first bit set in an integer. */
 #define GC_FIRST_BIT(x) gc_first_bit(x)
 
-void		 gc_init(void);
+int		 gc_init(void);
 _gc_cap void	*gc_malloc(size_t _sz);
 void		 gc_free(_gc_cap void *_p);
 /*

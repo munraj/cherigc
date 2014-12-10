@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "gc.h"
+#include "gc_collect.h"
 #include "gc_debug.h"
 #include "gc_stack.h"
 
@@ -85,14 +86,16 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	gc_debug("allocated btbl base: %s", gc_cap_str(btbl->bt_base));
 }
 
-void
+int
 gc_init(void)
 {
 
 	gc_debug("gc_init enter");
 	gc_state_c = gc_alloc_internal(sizeof(struct gc_state));
-	if (gc_state_c == NULL)
+	if (gc_state_c == NULL) {
 		gc_error("gc_alloc_internal(%zu)", sizeof(struct gc_state));
+		return (1);
+	}
 
 	memset((void *)gc_state_c, 0, sizeof(struct gc_state));
 	gc_state_c->gs_regs_c = gc_cheri_ptr((void *)&gc_state_c->gs_regs,
@@ -100,20 +103,25 @@ gc_init(void)
 	gc_state_c->gs_mark_state = GC_MS_NONE;
 
 	/* 4096*16384 => 64MB heap. */
+	/* XXX: 40kB heap */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_small,
-	    GC_PAGESZ, 16384, GC_BTBL_FLAG_SMALL);
+	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL);
 	/* 1024*16384 => 16MB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_big,
 	    GC_BIGSZ, 16384, 0);
 
-	if (gc_stack_init(&gc_state_c->gs_mark_stack, GC_STACKSZ) != 0)
+	if (gc_stack_init(&gc_state_c->gs_mark_stack, GC_STACKSZ) != 0) {
 		gc_error("gc_init_stack(%zu)", GC_STACKSZ);
+		return (1);
+	}
 	gc_state_c->gs_mark_stack_c = gc_cheri_ptr(
 	    (void *)&gc_state_c->gs_mark_stack,
 	    sizeof(gc_state_c->gs_mark_stack));
 
-	if (gc_stack_init(&gc_state_c->gs_sweep_stack, GC_PAGESZ) != 0)
+	if (gc_stack_init(&gc_state_c->gs_sweep_stack, GC_PAGESZ) != 0) {
 		gc_error("gc_init_stack(%zu)", GC_PAGESZ);
+		return (1);
+	}
 	gc_state_c->gs_sweep_stack_c = gc_cheri_ptr(
 	    (void *)&gc_state_c->gs_sweep_stack,
 	    sizeof(gc_state_c->gs_sweep_stack));
@@ -122,6 +130,7 @@ gc_init(void)
 	gc_state_c->gs_static_region = gc_get_static_region();
 
 	gc_debug("gc_init success");
+	return (0);
 }
 
 int
@@ -363,6 +372,9 @@ gc_malloc_entry(size_t sz)
 	_gc_cap struct gc_blk *blk;
 	_gc_cap void *ptr;
 	int error, roundsz, logsz, hdrbits, indx;
+	int collected;
+	collected = 0;
+retry:
 
 	gc_debug("servicing allocation request of %zu bytes", sz);
 	if (sz < GC_MINSZ) {
@@ -412,8 +424,15 @@ gc_malloc_entry(size_t sz)
 			error = gc_alloc_free_page(&gc_state_c->gs_btbl_small,
 			    &blk, GC_BTBL_USED);
 			if (error != 0) {
-				gc_error("out of memory");
-				return (NULL);
+				if (collected) {
+					gc_error("out of memory");
+					return (NULL);
+				} else {
+					gc_debug("OOM, collecting...");
+					gc_collect();
+					collected = 1;
+					goto retry;
+				}
 			}
 			gc_debug("first free page: %s", gc_cap_str(blk));
 			blk->bk_objsz = roundsz;
