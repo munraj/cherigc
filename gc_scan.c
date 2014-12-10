@@ -24,7 +24,8 @@ gc_get_page_tags(_gc_cap void *page)
 	uint64_t * tagp;
 	uint64_t mask;
 
-	scan = gc_cheri_ptr(gc_cheri_getbase(page) + gc_cheri_getoffset(page),
+	scan = gc_cheri_ptr((void*)(gc_cheri_getbase(page) +
+	    gc_cheri_getoffset(page)),
 	    /* GC_PAGESZ */ /* XXX: can't do this! */
 	    gc_cheri_getlen(page));
 	tags.tg_lo = 0;

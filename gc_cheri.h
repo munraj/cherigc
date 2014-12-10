@@ -102,7 +102,7 @@ _gc_cap void	*gc_get_stack(void);
 _gc_cap void	*gc_get_stack_top(void);
 _gc_cap void	*gc_get_stack_bottom(void);
 _gc_cap void	*gc_get_static_region(void);
-void		 gc_sigsegv_handler(int p);
+void		 gc_sigsegv_handler(int _p);
 
 extern jmp_buf	gc_jmp_buf;
 extern void	(*gc_oldfn)(int);

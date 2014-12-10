@@ -11,6 +11,7 @@
 #define	gc_error(...) gc_log(GC_LOG_ERROR, __FILE__, __LINE__, __VA_ARGS__)
 #define	gc_warn(...) gc_log(GC_LOG_WARN, __FILE__, __LINE__, __VA_ARGS__)
 #define	gc_debug(...) gc_log(GC_LOG_DEBUG, __FILE__, __LINE__, __VA_ARGS__)
+#define GC_NOTREACHABLE_ERROR() gc_error("NOTREACHABLE")
 
 enum gc_debug_defines {
 #define	X(cnst, value, ...) cnst=value,
@@ -23,7 +24,7 @@ void		 gc_log(int _severity, const char *_file, int _line,
 const char	*gc_log_severity_str(int _severity);
 const char	*gc_cap_str(_gc_cap void *_ptr);
 /* Prints the map of a block table, without outputting the free blocks. */
-void		 gc_print_map(_gc_cap struct gc_btbl *btbl);
+void		 gc_print_map(_gc_cap struct gc_btbl *_btbl);
 
 #define	SZFORMAT(n) SZDIV(n), SZPRE(n)
 

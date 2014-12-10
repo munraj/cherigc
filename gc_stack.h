@@ -2,17 +2,16 @@
 #define _GC_STACK_H_
 
 #include <stdlib.h>
+
 #include "gc_cheri.h"
 
-typedef struct
-{
-	__gc_capability void * __gc_capability * data;
-} gc_stack;
+struct gc_stack {
+	_gc_cap void * _gc_cap	*data;
+};
 
-int gc_stack_init (__gc_capability gc_stack * stack, size_t sz);
-int gc_stack_push (__gc_capability gc_stack * stack,
-	__gc_capability void * obj);
-int gc_stack_pop (__gc_capability gc_stack * stack,
-	__gc_capability void * __gc_capability * obj);
+int	gc_stack_init(_gc_cap struct gc_stack *_stack, size_t _sz);
+int	gc_stack_push(_gc_cap struct gc_stack *_stack, _gc_cap void *_obj);
+int	gc_stack_pop(_gc_cap struct gc_stack *_stack,
+	    _gc_cap void * _gc_cap *_obj);
 
-#endif /* _GC_STACK_H */
+#endif /* !_GC_STACK_H_ */

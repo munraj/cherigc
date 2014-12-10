@@ -144,13 +144,13 @@ struct gc_state {
 	/* Collector mark/sweep state. */
 	int			 gs_mark_state;
 	/* Mark stack. */
-	gc_stack		 gs_mark_stack;
+	struct gc_stack		 gs_mark_stack;
 	/* Sweep stack. */
-	gc_stack		 gs_sweep_stack;
+	struct gc_stack		 gs_sweep_stack;
 	/* Capability to mark stack with correct bound. */
-	_gc_cap gc_stack	*gs_mark_stack_c;
+	_gc_cap struct gc_stack	*gs_mark_stack_c;
 	/* Capability to sweep stack with correct bound. */
-	_gc_cap gc_stack	*gs_sweep_stack_c;
+	_gc_cap struct gc_stack	*gs_sweep_stack_c;
 #ifdef GC_COLLECT_STATS
 	/* Number of objects currently allocated (roughly). */
 	size_t			 gs_nalloc;
@@ -201,13 +201,13 @@ extern _gc_cap struct gc_state	*gc_state_c;
 
 void		 gc_init(void);
 _gc_cap void	*gc_malloc(size_t _sz);
-void		 gc_free(_cap void *_p);
+void		 gc_free(_gc_cap void *_p);
 /*
  * Immediately revoke all access to the given capability.
  * This requires finding all outstanding references and invalidating
  * them before returning the object to the memory pool.
  */
-void		 gc_revoke(_cap void *_p);
+void		 gc_revoke(_gc_cap void *_p);
 /*
  * Eventually re-use the given capability.
  * This returns the capability to the memory pool only when the last
@@ -226,15 +226,15 @@ void		 gc_alloc_btbl(_gc_cap struct gc_btbl *_btbl, size_t _slotsz,
  * Allocates a free page from the given block table.
  * Returns non-zero iff error.
  */
-int		 gc_alloc_free_page(_gc_cap gc_btbl *_btbl,
-		    _gc_cap gc_blk **_out_blk, int _type);
+int		 gc_alloc_free_page(_gc_cap struct gc_btbl *_btbl,
+		    _gc_cap struct gc_blk **_out_blk, int _type);
 const char	*binstr(uint8_t _b);
 /*
  * Sets the contents of the map of the block table to the given
  * value between the start and end indices (inclusive).
  */
-void		 gc_mtbl_set_map(_gc_cap gc_btbl *_btbl, int _start, int _end,
-		    uint8_t _v);
+void		 gc_btbl_set_map(_gc_cap struct gc_btbl *_btbl,
+		    int _start, int _end, uint8_t _v);
 /*
  * Sets an object as marked.
  * Return values:
@@ -252,8 +252,8 @@ int		 gc_set_mark(_gc_cap void *_p);
  * If this returns an index, the block might still not be used.
  * Always check the type.
  */
-int		 gc_get_mtbl_indx(_gc_cap gc_btbl *_btbl, size_t *_out_indx,
-		    uint8_t *_out_type, _gc_cap void *_p);
+int		 gc_get_btbl_indx(_gc_cap struct gc_btbl *_btbl,
+		    size_t *_out_indx, uint8_t *_out_type, _gc_cap void *_p);
 /*
  * Finds the block header for a given object.
  * The output index is the index of the object in the block, not the
@@ -263,11 +263,12 @@ int		 gc_get_mtbl_indx(_gc_cap gc_btbl *_btbl, size_t *_out_indx,
  * Return values:
  * GC_OBJ_USED:	block used, valid block header supplied.
  * GC_OBJ_FREE: block free, block header will be invalid.
- * GC_OBJ_UNMANAGED: block unmanaged by this mtbl (invalid address).
- * GC_INVALID_MTBL: wrong mtbl for this operation (requires SMALL flag).
+ * GC_OBJ_UNMANAGED: block unmanaged by this btbl (invalid address).
+ * GC_INVALID_BTBL: wrong btbl for this operation (requires SMALL flag).
  */
-int		 gc_get_block(_gc_cap gc_btbl *_btbl, _gc_cap gc_blk **_out_blk,
-		    size_t *_out_indx, _gc_cap void *_p);
+int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
+		    _gc_cap struct gc_blk **_out_blk, size_t *_out_indx,
+		    _gc_cap void *_p);
 
 /*
  * Returns the actual allocated object, given a pointer to its
@@ -286,6 +287,6 @@ int		 gc_get_obj(_gc_cap void *_p, _gc_cap void * _gc_cap *_out_p);
 #define GC_OBJ_UNMANAGED	2	/* not managed by GC */
 /* Managed by GC, in use, but already marked. */
 #define GC_OBJ_ALREADY_MARKED	3
-#define GC_INVALID_MTBL		4	/* invalid block table */
+#define GC_INVALID_BTBL		4	/* invalid block table */
 
 #endif /* !_GC_H_ */

@@ -7,7 +7,7 @@ void
 gc_collect(void)
 {
 
-	switch (gc_state->mark_state) {
+	switch (gc_state_c->gs_mark_state) {
 	case GC_MS_MARK:
 		gc_resume_marking();
 		break;
@@ -17,22 +17,24 @@ gc_collect(void)
 	case GC_MS_NONE:
 		gc_debug("beginning a new collection");
 #ifdef GC_COLLECT_STATS
-		gc_state->gs_nmark = 0;
-		gc_state->gs_nmarkbytes = 0;
-		gc_state->gs_nsweep = 0;
-		gc_state->gs_nsweepbytes = 0;
+		gc_state_c->gs_nmark = 0;
+		gc_state_c->gs_nmarkbytes = 0;
+		gc_state_c->gs_nsweep = 0;
+		gc_state_c->gs_nsweepbytes = 0;
 #endif
 		gc_start_marking();
 		/* Because we're not incremental yet: */
-		/*while (gc_state->mark_state != GC_MS_SWEEP)
+		/*while (gc_state_c->mark_state != GC_MS_SWEEP)
 			gc_resume_marking();
-		while (gc_state->mark_state != GC_MS_NONE)
+		while (gc_state_c->mark_state != GC_MS_NONE)
 			gc_resume_sweeping();*/
-		while (gc_state->gs_mark_state != GC_MS_NONE)
+		while (gc_state_c->gs_mark_state != GC_MS_NONE)
 			gc_resume_marking();
 		break;
 	default:
 		/* NOTREACHABLE */
+		GC_NOTREACHABLE_ERROR();
+		break;
 	}
 }
 
@@ -48,7 +50,7 @@ void
 gc_start_marking(void)
 {
 
-	gc_state->gs_mark_state = GC_MS_MARK;
+	gc_state_c->gs_mark_state = GC_MS_MARK;
 	gc_push_roots();
 	gc_resume_marking();
 }
@@ -156,14 +158,14 @@ gc_resume_marking(void)
 		gc_resume_sweeping();
 		return;
 	}
-	empty = gc_stack_pop(gc_state->mark_stack_c,
+	empty = gc_stack_pop(gc_state_c->gs_mark_stack_c,
 	    gc_cheri_ptr(&obj, sizeof(_gc_cap void*)));
 	if (empty) {
 #ifdef GC_COLLECT_STATS
 		gc_debug("mark phase complete (marked %zu/%zu object(s), "
 		    "total %zu/%zu bytes)",
-		    gc_state->nmark, gc_state->nalloc, gc_state->nmarkbytes,
-		    gc_state->nallocbytes);
+		    gc_state_c->gs_nmark, gc_state_c->gs_nalloc,
+		    gc_state_c->gs_nmarkbytes, gc_state_c->gs_nallocbytes);
 #endif
 		gc_start_sweeping();
 		return;
@@ -253,7 +255,7 @@ gc_start_sweeping(void)
 	ptr = gc_cheri_incbase(ptr, gc_cheri_getoffset(ptr));
 	ptr = gc_cheri_setoffset(ptr, 0);
 	ptr = gc_cheri_setlen(ptr, sizeof(struct gc_btbl));
-	error = gc_stack_push(gc_state->gs_sweep_stack_c, ptr);
+	error = gc_stack_push(gc_state_c->gs_sweep_stack_c, ptr);
 	gc_debug("pushed %s\n",gc_cap_str(ptr));
 	if (error != 0) {
 		gc_error("sweep stack overflow");
@@ -266,34 +268,34 @@ gc_start_sweeping(void)
 void
 gc_resume_sweeping(void)
 {
-	_gc_cap gc_btbl *btbl;
-	_gc_cap gc_blk *blk;
+	_gc_cap struct gc_btbl *btbl;
+	_gc_cap struct gc_blk *blk;
 	void *addr;
 	uint64_t tmp;
 	int empty, i, j, small, hdrbits, freecont;
 	uint8_t byte, type, mask;
 
-	empty = gc_stack_pop(gc_state_s->gs_sweep_stack_c, gc_cap_addr(&btbl));
+	empty = gc_stack_pop(gc_state_c->gs_sweep_stack_c, gc_cap_addr(&btbl));
 	if (empty) {
 		/* Collection complete. */
 #ifdef GC_COLLECT_STATS
 		gc_debug("sweep phase complete (swept %zu/%zu object(s), "
 		    "total recovered %zu/%zu bytes)",
-		    gc_state->gs_nsweep, gc_state->gs_nalloc,
-		    gc_state->gs_nsweepbytes, gc_state->gs_nallocbytes);
+		    gc_state_c->gs_nsweep, gc_state_c->gs_nalloc,
+		    gc_state_c->gs_nsweepbytes, gc_state_c->gs_nallocbytes);
 #endif
-		gc_state->gs_mark_state = GC_MS_NONE;
+		gc_state_c->gs_mark_state = GC_MS_NONE;
 #ifdef GC_COLLECT_STATS
-		gc_state->gs_nalloc -= gc_state->gs_nsweep;
-		gc_state->gs_nallocbytes -= gc_state->gs_nsweepbytes;
+		gc_state_c->gs_nalloc -= gc_state_c->gs_nsweep;
+		gc_state_c->gs_nallocbytes -= gc_state_c->gs_nsweepbytes;
 #endif
 		return;
 	}
 	small = btbl->bt_flags & GC_BTBL_FLAG_SMALL;
 	/* Walk the btbl, making objects and entire blocks free. */
 	freecont = 0;
-	for (i = 0; i < btbl->nslots / 4; i++) {
-		byte = btbl->map[i];
+	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+		byte = btbl->bt_map[i];
 		for (j = 0; j < 4; j++) {
 			type = (byte >> ((3 - j) * 2)) & 3;
 			addr = (char*)gc_cheri_getbase(btbl->bt_base) +
@@ -303,7 +305,7 @@ gc_resume_sweeping(void)
 					mask = ~(3 << ((3 - j) * 2));
 					byte &= mask; 
 #ifdef GC_COLLECT_STATS
-					gc_state->nsweepbytes +=
+					gc_state_c->gs_nsweepbytes +=
 					    btbl->bt_slotsz;
 #endif
 				} else if (type == GC_BTBL_USED) {
@@ -319,8 +321,9 @@ gc_resume_sweeping(void)
 					 */
 					freecont = 1;
 #ifdef GC_COLLECT_STATS
-					gc_state->nsweep++;
-					gc_state->nsweepbytes += btbl->slotsz;
+					gc_state_c->gs_nsweep++;
+					gc_state_c->gs_nsweepbytes +=
+					    btbl->bt_slotsz;
 #endif
 					gc_debug("swept entire large "
 					    "block at address %p",
@@ -353,7 +356,7 @@ gc_resume_sweeping(void)
 					 */
 					tmp = ~(blk->bk_free | blk->bk_marks);
 					tmp &= ((1ULL << (GC_PAGESZ /
-					    blk->objsz)) - 1ULL);
+					    blk->bk_objsz)) - 1ULL);
 					tmp &= ~((1ULL << hdrbits) -
 					    1ULL);
 					for (; tmp; tmp >>= 1) {
@@ -365,7 +368,7 @@ gc_resume_sweeping(void)
 						}
 					}
 #endif
-					if (!blk->marks) {
+					if (!blk->bk_marks) {
 						/* Entire block free. */
 						mask = ~(3 << ((3 - j) * 2));
 						byte &= mask;
@@ -397,7 +400,6 @@ gc_resume_sweeping(void)
 				}
 			}
 		}
-		btbl->bk_map[i] = byte;
+		btbl->bt_map[i] = byte;
 	}
-}
 }
