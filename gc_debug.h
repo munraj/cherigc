@@ -25,6 +25,7 @@ const char	*gc_log_severity_str(int _severity);
 const char	*gc_cap_str(_gc_cap void *_ptr);
 /* Prints the map of a block table, without outputting the free blocks. */
 void		 gc_print_map(_gc_cap struct gc_btbl *_btbl);
+void		 gc_print_siginfo_status(void);
 
 #define	SZFORMAT(n) SZDIV(n), SZPRE(n)
 

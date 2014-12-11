@@ -1,5 +1,5 @@
 .include "cheridefs.mk"
-OBJS=gc.o gc_collect.o gc_scan.o gc_stack.o gc_debug.o gc_cheri.o
+OBJS=gc.o gc_collect.o gc_scan.o gc_stack.o gc_debug.o gc_cheri.o gc_cmdln.o
 CFLAGS+=-g
 CFLAGS+=-DGC_COLLECT_STATS
 
@@ -34,3 +34,4 @@ gc_stack.o: gc_stack.c gc_stack.h gc.h
 gc_collect.o: gc_collect.c gc_collect.h gc_debug.h gc.h
 gc_debug.o: gc_debug.c gc_debug.h
 gc_cheri.o: gc_cheri.c gc_cheri.h gc_debug.h
+gc_cmdln.o: gc_cmdln.c gc_cmdln.h

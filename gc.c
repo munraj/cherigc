@@ -329,6 +329,7 @@ gc_follow_free(_gc_cap struct gc_blk **blk)
 {
 
 	for (; *blk != NULL; *blk = (*blk)->bk_next) {
+		gc_debug("*blk is %s\n", gc_cap_str(*blk));
 		if ((*blk)->bk_free)
 			return (0);
 	}
@@ -341,6 +342,9 @@ gc_ins_blk(_gc_cap struct gc_blk *blk, _gc_cap struct gc_blk **list)
 
 	blk->bk_prev = NULL;
 	blk->bk_next = *list;
+	if (*list != NULL) {
+		(*list)->bk_prev = blk;
+	}
 	*list = blk;
 }
 
@@ -353,8 +357,7 @@ gc_malloc(size_t sz)
 
 	len = (uintptr_t)gc_state_c->gs_stack_bottom -
 	    (uintptr_t)GC_ALIGN(&len);
-	gc_state_c->gs_stack = gc_cheri_setlen(gc_state_c->gs_stack_bottom,
-	    len);
+	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(&len), len);
 	c16 = gc_state_c->gs_regs_c;
 	__asm__ __volatile__ (
 		"cmove $c16, %0" : : "C"(c16) : "memory", "$c16"
@@ -418,6 +421,7 @@ retry:
 		gc_debug("request %zu is small (rounded %zu, log %zu)",
 		    sz, roundsz, logsz);
 		blk = gc_state_c->gs_heap[logsz];
+		gc_debug("checking if %s is free...\n", gc_cap_str(blk));
 		error = gc_follow_free(&blk); 
 		if (error != 0) {
 			gc_debug("allocating new block");

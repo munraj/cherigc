@@ -8,6 +8,7 @@ typedef void	testpf(struct tf_test *_thiz, const char *_fmt, ...);
 typedef void	testexit(struct tf_test *_thiz, int _rc);
 typedef void	testassert(struct tf_test *_thiz, int _cond,
 		    const char *_scond, const char *_file, int _line);
+typedef void	tf_sig_fn(int);
 
 /*
  * Note: tests should actually invoke the functions without the `2' suffix,
@@ -51,7 +52,12 @@ struct tf_result {
 	int		 r_nsucc;	/* number of tests that succeeded */
 };
 
-void		tf_init(void);
+struct tf_init {
+	/* SIGINFO handler (for info via CTRL+T on the console). */
+	tf_sig_fn	*i_siginfo_hnd;
+};
+
+void		tf_init(struct tf_init *_init);
 void		tf_runall(struct tf_test *_test, struct tf_result *_result);
 void		tf_run(struct tf_test *_test);
 

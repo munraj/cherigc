@@ -372,6 +372,13 @@ gc_resume_sweeping(void)
 						/* Entire block free. */
 						mask = ~(3 << ((3 - j) * 2));
 						byte &= mask;
+						/* Remove blk from its list */
+						if (blk->bk_next) {
+							blk->bk_next->bk_prev = blk->bk_prev;
+						}
+						if (blk->bk_prev) {
+							blk->bk_prev->bk_next = blk->bk_next;
+						}
 						gc_debug("swept entire block "
 						    "storing objects of size "
 						    "%zu at address %s",

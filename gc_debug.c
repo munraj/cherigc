@@ -100,3 +100,20 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 			    prev_cont_addr, prev_addr);
 	}
 }
+
+void
+gc_print_siginfo_status(void)
+{
+	size_t btbls_sz, btblb_sz;
+
+	btbls_sz = gc_cheri_getlen(gc_state_c->gs_btbl_small.bt_base);
+	btblb_sz = gc_cheri_getlen(gc_state_c->gs_btbl_big.bt_base);
+
+	printf(
+	    "[gc] alloc=%zu allocb=%zu%c mk=%zu mkb=%zu%c swp=%zu swpb=%zu%c\n"
+	    "[gc] btbls: [sz=%zu%c] btblb: [sz=%zu%c]\n",
+	    gc_state_c->gs_nalloc, SZFORMAT(gc_state_c->gs_nallocbytes),
+	    gc_state_c->gs_nmark, SZFORMAT(gc_state_c->gs_nmarkbytes),
+	    gc_state_c->gs_nsweep, SZFORMAT(gc_state_c->gs_nsweepbytes),
+	    SZFORMAT(btbls_sz), SZFORMAT(btblb_sz));
+}

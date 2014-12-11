@@ -3,26 +3,38 @@
 #include <string.h>
 
 #include <gc.h>
+#include <gc_cmdln.h>
 #include <gc_debug.h>
 
 #include "framework.h"
 
-testfn test_gc_init;
-testfn test_gc_malloc;
+tf_sig_fn	siginfo_hnd;
+testfn		test_gc_init;
+testfn		test_gc_malloc;
 
 struct tf_test	tests[] = {
 	{.t_fn = test_gc_init, .t_desc = "gc initialization"},
-	{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 1},
+	{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 0},
 	{.t_fn = NULL},
 };
+
+void
+siginfo_hnd(int sig)
+{
+
+	gc_print_siginfo_status();
+	gc_cmdln();
+}
 
 int
 main()
 {
+	struct tf_init init;
 	struct tf_result result;
 
 	memset(&result, 0, sizeof(result));
-	tf_init();
+	init.i_siginfo_hnd = &siginfo_hnd;
+	tf_init(&init);
 	tf_runall(tests, &result);
 
 	printf("%d successes %d failures %d total\n",

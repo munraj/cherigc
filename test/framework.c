@@ -4,6 +4,7 @@
 #include <sys/wait.h>
 #endif
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,8 +12,17 @@
 #include "framework.h"
 
 void
-tf_init(void)
+tf_init(struct tf_init *init)
 {
+	void (*rc)(int);
+
+	if (init->i_siginfo_hnd != NULL) {
+		rc = signal(SIGINFO, init->i_siginfo_hnd);
+		if (rc == SIG_ERR) {
+			fprintf(stderr, "tf_init: signal returned SIG_ERR\n");
+			exit(1);
+		}
+	}
 }
 
 void
