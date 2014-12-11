@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "gc_debug.h"
+#include "gc_cmdln.h"
 
 const char *
 gc_log_severity_str(int severity)
@@ -41,6 +42,9 @@ gc_log(int severity, const char *file, int line, const char *format, ...)
 	vfprintf(stderr, format, vl);
 	fprintf(stderr, "\n");
 	va_end(vl);
+
+	if (gc_state_c != NULL && gc_state_c->gs_enter_cmdln_on_log)
+		gc_cmdln();
 }
 
 void
@@ -52,6 +56,7 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 	uint64_t prev_addr;
 	uint8_t base, byte;
 
+	gc_debug("btbl base: %s\n", gc_cap_str(btbl->bt_base));
 	prev_cont_addr = 0;
 	prev_addr = 0;
 	for (i = 0; i < btbl->bt_nslots / 4; i++) {
@@ -111,9 +116,11 @@ gc_print_siginfo_status(void)
 
 	printf(
 	    "[gc] alloc=%zu allocb=%zu%c mk=%zu mkb=%zu%c swp=%zu swpb=%zu%c\n"
-	    "[gc] btbls: [sz=%zu%c] btblb: [sz=%zu%c]\n",
+	    "[gc] btbls: [sz=%zu%c] btblb: [sz=%zu%c]\n"
+	    "[gc] ntcollect=%zu\n",
 	    gc_state_c->gs_nalloc, SZFORMAT(gc_state_c->gs_nallocbytes),
 	    gc_state_c->gs_nmark, SZFORMAT(gc_state_c->gs_nmarkbytes),
 	    gc_state_c->gs_nsweep, SZFORMAT(gc_state_c->gs_nsweepbytes),
-	    SZFORMAT(btbls_sz), SZFORMAT(btblb_sz));
+	    SZFORMAT(btbls_sz), SZFORMAT(btblb_sz),
+	    gc_state_c->gs_ntcollect);
 }

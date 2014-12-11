@@ -66,7 +66,7 @@ test_gc_malloc(struct tf_test *thiz)
 	istep = 0;
 	imult = 2;
 	#define JMIN 1
-	#define JMAX imax/i
+	#define JMAX 100
 	#define JSTEP 1
 	#define JMULT 1
 

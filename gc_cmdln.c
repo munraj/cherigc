@@ -1,11 +1,21 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "gc.h"
 #include "gc_cmdln.h"
+#include "gc_debug.h"
 
 struct gc_cmd	gc_cmds[] = {
-	{.c_cmd = (const char *[]){"help", "h", NULL}, .c_fn = &gc_cmd_help},
-	{.c_cmd = (const char *[]){"cont", "c", NULL}, .c_fn = &gc_cmd_cont},
+	{.c_cmd = (const char *[]){"help", "h", NULL}, .c_fn = &gc_cmd_help,
+	 .c_desc = "Display help"},
+	{.c_cmd = (const char *[]){"cont", "c", "", NULL}, .c_fn = &gc_cmd_cont,
+	 .c_desc = "Continue running"},
+	{.c_cmd = (const char *[]){"next", "n", "", NULL}, .c_fn = &gc_cmd_next,
+	 .c_desc = "Step one \"logical\" step"},
+	{.c_cmd = (const char *[]){"stat", "s", NULL}, .c_fn = &gc_cmd_stat,
+	 .c_desc = "Display statistics"},
+	{.c_cmd = (const char *[]){"map", "m", NULL}, .c_fn = &gc_cmd_map,
+	 .c_desc = "Display btbl map"},
 	{.c_cmd = NULL},
 };
 
@@ -17,7 +27,7 @@ gc_cmd_help(struct gc_cmd *cmd, char **arg)
 	for (cmd = gc_cmds; cmd->c_cmd != NULL; cmd++) {
 		for (namep = cmd->c_cmd; *namep != NULL; namep++)
 			printf("%s ", *namep);
-		printf("\n");
+		printf("- %s\n", cmd->c_desc);
 	}
 	return (0);
 }
@@ -27,6 +37,50 @@ gc_cmd_cont(struct gc_cmd *cmd, char **arg)
 {
 
 	return (1);
+}
+
+int
+gc_cmd_next(struct gc_cmd *cmd, char **arg)
+{
+
+	gc_state_c->gs_enter_cmdln_on_log = 1;
+	return (1);
+}
+
+int
+gc_cmd_stat(struct gc_cmd *cmd, char **arg)
+{
+	int i;
+
+	gc_print_siginfo_status();
+	for (i = 0; i < GC_LOG_BIGSZ; i++)
+		printf("ntalloc %d = %zu\n", 1 << i, gc_state_c->gs_ntalloc[i]);
+
+	return (0);
+}
+
+int
+gc_cmd_map(struct gc_cmd *cmd, char **arg)
+{
+	_gc_cap struct gc_btbl *btbl;
+	int error;
+
+	error = 0;
+	if (arg[1] == NULL)
+		error = 1;
+	else if (strcmp(arg[1], "b") == 0)
+		btbl = &gc_state_c->gs_btbl_big;
+	else if (strcmp(arg[1], "s") == 0)
+		btbl = &gc_state_c->gs_btbl_small;
+	else
+		error = 1;
+
+	if (error)
+		printf("map: b (big) or s (small)\n");
+	else
+		gc_print_map(btbl);
+
+	return (0);
 }
 
 void
@@ -91,6 +145,9 @@ gc_cmdln(void)
 	char buf[512];
 	char *arg[10];
 	int rc;
+
+	/* Disable stepping until explicitly requested again. */
+	gc_state_c->gs_enter_cmdln_on_log = 0;
 
 	for (;;) {
 		gc_cmdin(buf, sizeof(buf));

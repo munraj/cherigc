@@ -134,24 +134,71 @@ gc_init(void)
 }
 
 int
-gc_alloc_free_page(_gc_cap struct gc_btbl *btbl,
+gc_alloc_free_blk(_gc_cap struct gc_btbl *btbl,
     _gc_cap struct gc_blk **out_blk, int type)
 {
-	int i, j;
+	int i, j, idx;
 	uint8_t byte;
 
 	for (i = 0; i < btbl->bt_nslots / 4; i++) {
 		byte = btbl->bt_map[i];
 		for (j = 0; j < 4; j++) {
-			if (!(byte & 0xC0)) {
+			idx = GC_BTBL_MKINDX(i, j);
+			if (GC_BTBL_GETTYPE(byte, j) == GC_BTBL_FREE) {
 				*out_blk = gc_cheri_incbase(btbl->bt_base,
-				    (i * 4 + j) * btbl->bt_slotsz);
+				    idx * btbl->bt_slotsz);
 				*out_blk = gc_cheri_setlen(*out_blk,
 					btbl->bt_slotsz);
-				btbl->bt_map[i] |= type << ((3 - j) * 2);
+				GC_BTBL_SETTYPE(byte, j, type);
+				btbl->bt_map[i] = byte;
 				return (0);
 			}
-			byte <<= 2;
+		}
+	}
+	return (1);
+}
+
+int
+gc_alloc_free_blks(_gc_cap struct gc_btbl *btbl,
+    _gc_cap struct gc_blk **out_blk, int type, int len)
+{
+	int i, j, idx, fi, fj, fidx, nblk;
+	uint8_t byte;
+
+	nblk = (len + btbl->bt_slotsz - 1) / btbl->bt_slotsz;
+gc_cmdln();
+	fi = -1;
+	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+		byte = btbl->bt_map[i];
+		for (j = 0; j < 4; j++) {
+			idx = GC_BTBL_MKINDX(i, j);
+			gc_debug("examine idx %d, fi=%d, fidx=%d, req=%d\n", idx, fi, fidx, nblk);
+			if (GC_BTBL_GETTYPE(byte, j) == GC_BTBL_FREE) {
+				if (fi == -1) {
+					fi = i;
+					fj = j;
+					fidx = GC_BTBL_MKINDX(fi, fj);
+				} else {
+					if (fidx - idx == nblk) {
+						/* Have enough free blocks. */
+						*out_blk = gc_cheri_incbase(
+						    btbl->bt_base,
+						    fidx * btbl->bt_slotsz);
+						*out_blk = gc_cheri_setlen(
+						    *out_blk, btbl->bt_slotsz);
+						/*
+						 * Go back and set all blocks as
+						 * allocated.
+						 */
+						gc_btbl_set_map(btbl, fidx, idx,
+						    type);
+						return (0);
+					}
+				}
+			} else {
+				/* Start search again. */
+				fi = -1;
+			}
 		}
 	}
 	return (1);
@@ -244,11 +291,7 @@ gc_set_mark(_gc_cap void *ptr)
 		else {
 			/* NOTREACHABLE */
 		}
-		/*
-		 * XXX: only because USED_MARKED is 0b11 does this
-		 * work.
-		 */
-		byte |= GC_BTBL_USED_MARKED << ((3 - (indx % 4)) * 2);
+		GC_BTBL_SETTYPE(byte, indx, GC_BTBL_USED_MARKED);
 		gc_state_c->gs_btbl_big.bt_map[indx / 4] = byte;
 #ifdef GC_COLLECT_STATS
 		gc_state_c->gs_nmark++;
@@ -280,9 +323,9 @@ gc_get_btbl_indx(_gc_cap struct gc_btbl *btbl, size_t *out_indx,
 	    (uintptr_t)gc_cheri_getbase(btbl->bt_base)) >> logslotsz;
 	for (;;) {
 		byte = btbl->bt_map[*out_indx / 4];
-		type = (byte >> ((3 - (*out_indx % 4)) * 2)) & 3;
+		type = GC_BTBL_GETTYPE(byte, *out_indx);
 		if (type == GC_BTBL_CONT) {
-			/* Block is continuation data; go to previous page. */
+			/* Block is continuation data; go to previous block. */
 			if (*out_indx == 0)
 				return (1);
 			(*out_indx)--;
@@ -306,7 +349,7 @@ gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
 	if (gc_get_btbl_indx(btbl, &indx, &type, ptr) != 0)
 		return (GC_OBJ_UNMANAGED);
 	if (type == GC_BTBL_USED) {
-		/* This page contains block header. */
+		/* This block contains block header. */
 		logslotsz = GC_LOG2(btbl->bt_slotsz);
 		mask = ((uintptr_t)1 << logslotsz) - (uintptr_t)1;
 		*out_blk = cheri_ptr((void*)((uintptr_t)ptr & ~mask),
@@ -396,8 +439,22 @@ retry:
 		    roundsz > gc_cheri_getlen(
 		    gc_state_c->gs_btbl_big.bt_base)) {
 			/* Out of memory, TODO: collect or search the map. */
-			gc_debug("couldn't bump the pointer");
-			ptr = NULL;
+			gc_debug("couldn't bump the pointer; searching for free blocks");
+			error = gc_alloc_free_blks(&gc_state_c->gs_btbl_big,
+			    &blk, GC_BTBL_USED, roundsz);
+			if (error != 0) {
+				if (collected) {
+					gc_error("out of memory");
+					return (NULL);
+				} else {
+					gc_debug("OOM, collecting...");
+					gc_collect();
+					collected = 1;
+					goto retry;
+				}
+			}
+			gc_debug("found free blocks starting at %s\n", gc_cap_str(blk));
+			ptr = blk;
 		} else {
 			ptr = gc_cheri_incbase(gc_state_c->gs_btbl_big.bt_base,
 			    gc_cheri_getoffset(
@@ -418,6 +475,9 @@ retry:
 	} else {
 		roundsz = GC_ROUND_POW2(sz);
 		logsz = GC_LOG2(roundsz);
+#ifdef GC_COLLECT_STATS
+		gc_state_c->gs_ntalloc[logsz]++;
+#endif
 		gc_debug("request %zu is small (rounded %zu, log %zu)",
 		    sz, roundsz, logsz);
 		blk = gc_state_c->gs_heap[logsz];
@@ -425,7 +485,7 @@ retry:
 		error = gc_follow_free(&blk); 
 		if (error != 0) {
 			gc_debug("allocating new block");
-			error = gc_alloc_free_page(&gc_state_c->gs_btbl_small,
+			error = gc_alloc_free_blk(&gc_state_c->gs_btbl_small,
 			    &blk, GC_BTBL_USED);
 			if (error != 0) {
 				if (collected) {
@@ -438,7 +498,7 @@ retry:
 					goto retry;
 				}
 			}
-			gc_debug("first free page: %s", gc_cap_str(blk));
+			gc_debug("first free block: %s", gc_cap_str(blk));
 			blk->bk_objsz = roundsz;
 			blk->bk_marks = 0;
 			blk->bk_free = ((1ULL << (GC_PAGESZ / roundsz)) - 1ULL);
@@ -540,7 +600,7 @@ gc_get_obj(_gc_cap void *ptr, _gc_cap void * _gc_cap *out_ptr)
 				byte = gc_state_c->gs_btbl_big.bt_map[i];
 				for (j = (i == indx / 4) ? indx % 4 : 0;
 				    j < 4; j++) {
-					type = (byte >> ((3 - j) * 2)) & 3;
+					type = GC_BTBL_GETTYPE(byte, j);
 					if (type == GC_BTBL_CONT)
 						len += GC_BIGSZ;
 					else {

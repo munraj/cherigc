@@ -21,6 +21,7 @@ gc_collect(void)
 		gc_state_c->gs_nmarkbytes = 0;
 		gc_state_c->gs_nsweep = 0;
 		gc_state_c->gs_nsweepbytes = 0;
+		gc_state_c->gs_ntcollect++;
 #endif
 		gc_start_marking();
 		/* Because we're not incremental yet: */

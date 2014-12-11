@@ -10,6 +10,7 @@ typedef int		gc_cmd_fn(struct gc_cmd *_cmd, char **_arg);
 struct gc_cmd {
 	const char	**c_cmd;	/* command name(s) */
 	gc_cmd_fn	*c_fn;		/* function to invoke */
+	const char	*c_desc;	/* textual description */
 };
 
 extern struct gc_cmd	gc_cmds[];
@@ -22,5 +23,8 @@ int		gc_cmdrn(char **_arg);
 /* Commands. */
 gc_cmd_fn	gc_cmd_help;
 gc_cmd_fn	gc_cmd_cont;
+gc_cmd_fn	gc_cmd_next;
+gc_cmd_fn	gc_cmd_stat;
+gc_cmd_fn	gc_cmd_map;
 
 #endif /* !_GC_CMDLN_H_ */

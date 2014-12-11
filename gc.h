@@ -80,6 +80,23 @@ struct gc_btbl {
 	_gc_cap uint8_t	*bt_map;	/* size: bt_nslots/4 */
 };
 
+/* Construct an index into the map. */
+#define	GC_BTBL_MKINDX(i, j)	((i) * 4 + (j))
+
+/*
+ * Break down an index into a byte index for the map (MAPINDX) and a bit index
+ * within the byte (BYTINDX).
+ */
+#define	GC_BTBL_MAPINDX(idx)	((idx) / 4)
+#define GC_BTBL_BYTINDX(idx)	((3 - ((idx) % 4)) * 2)
+
+/* Get and set the btbl type of an index into a byte in the map. */
+#define GC_BTBL_GETTYPE(byte, j)	(((byte) >> GC_BTBL_BYTINDX(j)) & 3)
+#define GC_BTBL_SETTYPE(byte, j, type)	do {				\
+		    (byte) &= ~(uint8_t)(3 << GC_BTBL_BYTINDX(j));	\
+		    (byte) |= (type) << GC_BTBL_BYTINDX(j);		\
+	    } while (0)
+
 /*
  * GC_BIGSZ
  * Size of a "big" block. Any allocation request from the client of
@@ -125,6 +142,15 @@ struct gc_btbl {
 #define GC_MS_SWEEP	2	/* sweeping */
 
 struct gc_state {
+
+	/*
+	 * Whenever this is set, any call to gc_log will cause it to invoke
+	 * gc_cmdln after printing the diagnostic message. This provides
+	 * the command line with an ability to crudely "step" the garbage
+	 * collector.
+	 */
+	int			 gs_enter_cmdln_on_log;
+
 	/* Small objects: allocated from pools, individual block headers. */
 	_gc_cap struct gc_blk	*gs_heap[GC_LOG_BIGSZ];
 	_gc_cap struct gc_blk	*gs_heap_free;
@@ -164,6 +190,10 @@ struct gc_state {
 	size_t			 gs_nsweep;
 	/* Number of bytes swept. */
 	size_t			 gs_nsweepbytes;
+	/* Total number of collections */
+	size_t			 gs_ntcollect;
+	/* Total number of allocation requests of each small size */
+	size_t			 gs_ntalloc[GC_LOG_BIGSZ];
 #endif /* GC_COLLECT_STATS */
 };
 
@@ -223,11 +253,19 @@ int		 gc_first_bit(uint64_t _x);
 void		 gc_alloc_btbl(_gc_cap struct gc_btbl *_btbl, size_t _slotsz,
 		    size_t _nslots, int _flags);
 /*
- * Allocates a free page from the given block table.
+ * Allocates a free block from the given block table.
  * Returns non-zero iff error.
  */
-int		 gc_alloc_free_page(_gc_cap struct gc_btbl *_btbl,
+int		 gc_alloc_free_blk(_gc_cap struct gc_btbl *_btbl,
 		    _gc_cap struct gc_blk **_out_blk, int _type);
+/*
+ * Searches the block table to find the requested number of free blocks. If the
+ * requested number are found, they are allocated (set to type _type) and the
+ * function returns 0. Otherwise, the block table is left unmodified, and the
+ * function returns 1.
+ */
+int		 gc_alloc_free_blks(_gc_cap struct gc_btbl *_btbl,
+		    _gc_cap struct gc_blk **_out_blk, int _type, int _len);
 const char	*binstr(uint8_t _b);
 /*
  * Sets the contents of the map of the block table to the given
