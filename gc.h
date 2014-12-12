@@ -135,7 +135,19 @@ struct gc_btbl {
 #define GC_BTBL_CONT		((uint8_t)0x02)
 #define GC_BTBL_USED_MARKED	((uint8_t)0x03)
 
+
+/*
+ * The objects stored in this btbl are small: that is, small enough
+ * so that it makes sense to track them with a header for each block.
+ */
 #define GC_BTBL_FLAG_SMALL	0x00000001
+
+/*
+ * The objects stored in this btbl are managed by the collector. That
+ * is, the garbage collector has sole control over allocating objects
+ * in the btbl and is free to read from and write to their memory.
+ */
+#define GC_BTBL_FLAG_MANAGED	0x00000001
 
 #define GC_MS_NONE	0	/* not collecting */
 #define GC_MS_MARK	1	/* marking */
@@ -194,6 +206,8 @@ struct gc_state {
 	size_t			 gs_ntcollect;
 	/* Total number of allocation requests of each small size */
 	size_t			 gs_ntalloc[GC_LOG_BIGSZ];
+	/* Total number of allocation requests of large sizes */
+	size_t			 gs_ntbigalloc;
 #endif /* GC_COLLECT_STATS */
 };
 

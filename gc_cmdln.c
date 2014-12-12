@@ -10,7 +10,7 @@ struct gc_cmd	gc_cmds[] = {
 	 .c_desc = "Display help"},
 	{.c_cmd = (const char *[]){"cont", "c", "", NULL}, .c_fn = &gc_cmd_cont,
 	 .c_desc = "Continue running"},
-	{.c_cmd = (const char *[]){"next", "n", "", NULL}, .c_fn = &gc_cmd_next,
+	{.c_cmd = (const char *[]){"next", "n", NULL}, .c_fn = &gc_cmd_next,
 	 .c_desc = "Step one \"logical\" step"},
 	{.c_cmd = (const char *[]){"stat", "s", NULL}, .c_fn = &gc_cmd_stat,
 	 .c_desc = "Display statistics"},
@@ -55,7 +55,7 @@ gc_cmd_stat(struct gc_cmd *cmd, char **arg)
 	gc_print_siginfo_status();
 	for (i = 0; i < GC_LOG_BIGSZ; i++)
 		printf("ntalloc %d = %zu\n", 1 << i, gc_state_c->gs_ntalloc[i]);
-
+	printf("ntbigalloc = %zu\n", gc_state_c->gs_ntbigalloc);
 	return (0);
 }
 

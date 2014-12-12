@@ -11,8 +11,6 @@ gc_scan_region(_gc_cap void *region)
 	for (scan = (_gc_cap void **)region;
 	    (void*)scan < (void*)region + gc_cheri_getlen(region); scan++) {
 		ptr = *scan;
-		gc_debug("scan: %p value: %p tag: %d", (void*)scan,
-		    (void*)ptr, gc_cheri_gettag(ptr));
 	}
 }
 
@@ -34,7 +32,6 @@ gc_get_page_tags(_gc_cap void *page)
 	tagp = &tags.tg_lo;
 	for (; gc_cheri_getoffset(scan) < gc_cheri_getlen(page);
 	    scan++, mask <<= 1) {
-		gc_debug("scan: %s\n", gc_cap_str(scan));
 		if (!mask) {
 			mask = 1ULL;
 			tagp = &tags.tg_hi;

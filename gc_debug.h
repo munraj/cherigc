@@ -27,6 +27,22 @@ const char	*gc_cap_str(_gc_cap void *_ptr);
 void		 gc_print_map(_gc_cap struct gc_btbl *_btbl);
 void		 gc_print_siginfo_status(void);
 
+/* Initializes the memory for this object with a magic pattern, in
+ * order to aid debugging of memory corruption.
+ *
+ * It is assumed that the length of _obj specifies how much of the
+ * object is actually to be used by a client, and that _roundsz is the
+ * actual size of the object as allocated internally, so that the
+ * difference can be filled with a different pattern.
+ */
+void		 gc_fill_used_mem(_gc_cap void *_obj, size_t _roundsz);
+void		 gc_fill_free_mem(_gc_cap void *_obj);
+void		 gc_fill(_gc_cap void * _obj, uint32_t _magic);
+
+#define	GC_MAGIC_INIT_USE	0xA110CA7D
+#define	GC_MAGIC_INIT_INTERNAL	0x5CAFF01D
+#define	GC_MAGIC_INIT_FREE	0xDE1E7ED0
+
 #define	SZFORMAT(n) SZDIV(n), SZPRE(n)
 
 #define	SZPRE(n) (							\

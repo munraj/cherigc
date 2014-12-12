@@ -298,13 +298,13 @@ gc_resume_sweeping(void)
 	for (i = 0; i < btbl->bt_nslots / 4; i++) {
 		byte = btbl->bt_map[i];
 		for (j = 0; j < 4; j++) {
-			type = (byte >> ((3 - j) * 2)) & 3;
+			type = GC_BTBL_GETTYPE(byte, j);
 			addr = (char*)gc_cheri_getbase(btbl->bt_base) +
-					(4 * i + j)*btbl->bt_slotsz;
+					GC_BTBL_MKINDX(i, j) * btbl->bt_slotsz;
 			if (!small) {
 				if (type == GC_BTBL_CONT && freecont) {
-					mask = ~(3 << ((3 - j) * 2));
-					byte &= mask; 
+					GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
+					gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
 #ifdef GC_COLLECT_STATS
 					gc_state_c->gs_nsweepbytes +=
 					    btbl->bt_slotsz;
@@ -314,8 +314,8 @@ gc_resume_sweeping(void)
 					 * Used but not marked; free entire
 					 * block.
 					 */
-					mask = ~(3 << ((3-j)*2));
-					byte &= mask; 
+					GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
+					gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
 					/*
 					 * Next iterations will free
 					 * continuation data.
@@ -326,15 +326,12 @@ gc_resume_sweeping(void)
 					gc_state_c->gs_nsweepbytes +=
 					    btbl->bt_slotsz;
 #endif
-					gc_debug("swept entire large "
+					/*gc_debug("swept entire large "
 					    "block at address %p",
-					    addr);
+					    addr);*/
 				} else if (type ==
 				    GC_BTBL_USED_MARKED) {
-					mask = ~(3 << ((3 - j) * 2));
-					byte &= mask; 
-					mask = (GC_BTBL_USED << ((3 - j) * 2));
-					byte |= mask;
+					GC_BTBL_SETTYPE(byte, j, GC_BTBL_USED);
 					freecont = 0;
 				} else if (freecont) {
 					freecont = 0;
@@ -366,13 +363,13 @@ gc_resume_sweeping(void)
 							gc_state_c->
 							    gs_nsweepbytes +=
 							    blk->bk_objsz;
+						/* TODO: call gc_fill_free_mem on these */
 						}
 					}
 #endif
 					if (!blk->bk_marks) {
 						/* Entire block free. */
-						mask = ~(3 << ((3 - j) * 2));
-						byte &= mask;
+						GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
 						/* Remove blk from its list */
 						if (blk->bk_next) {
 							blk->bk_next->bk_prev = blk->bk_prev;
@@ -385,6 +382,7 @@ gc_resume_sweeping(void)
 						    "%zu at address %s",
 						    blk->bk_objsz,
 						    gc_cap_str(blk));
+						gc_fill_free_mem(blk);
 					} else {
 						/*
 						 * Make free all those things

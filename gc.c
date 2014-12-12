@@ -70,6 +70,7 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	btbl->bt_base = gc_alloc_internal(slotsz * nslots);
 	if (btbl->bt_base == NULL)
 		gc_error("gc_alloc_internal(%zu)", slotsz * nslots);
+	gc_fill_free_mem(btbl->bt_base);
 
 	btbl->bt_map = gc_alloc_internal(nslots / 4);
 	if (btbl->bt_map == NULL) {
@@ -166,26 +167,24 @@ gc_alloc_free_blks(_gc_cap struct gc_btbl *btbl,
 	uint8_t byte;
 
 	nblk = (len + btbl->bt_slotsz - 1) / btbl->bt_slotsz;
-gc_cmdln();
 	fi = -1;
 	for (i = 0; i < btbl->bt_nslots / 4; i++) {
 		byte = btbl->bt_map[i];
 		for (j = 0; j < 4; j++) {
 			idx = GC_BTBL_MKINDX(i, j);
-			gc_debug("examine idx %d, fi=%d, fidx=%d, req=%d\n", idx, fi, fidx, nblk);
 			if (GC_BTBL_GETTYPE(byte, j) == GC_BTBL_FREE) {
 				if (fi == -1) {
 					fi = i;
 					fj = j;
 					fidx = GC_BTBL_MKINDX(fi, fj);
 				} else {
-					if (fidx - idx == nblk) {
+					if (idx - fidx == nblk - 1) {
 						/* Have enough free blocks. */
 						*out_blk = gc_cheri_incbase(
 						    btbl->bt_base,
 						    fidx * btbl->bt_slotsz);
 						*out_blk = gc_cheri_setlen(
-						    *out_blk, btbl->bt_slotsz);
+						    *out_blk, nblk * btbl->bt_slotsz);
 						/*
 						 * Go back and set all blocks as
 						 * allocated.
@@ -417,6 +416,7 @@ gc_malloc_entry(size_t sz)
 {
 	_gc_cap struct gc_blk *blk;
 	_gc_cap void *ptr;
+	uint64_t off;
 	int error, roundsz, logsz, hdrbits, indx;
 	int collected;
 	collected = 0;
@@ -430,6 +430,7 @@ retry:
 	}
 	if (GC_ROUND_POW2(sz) >= GC_BIGSZ) {
 		roundsz = GC_ROUND_BIGSZ(sz);
+		gc_state_c->gs_ntbigalloc++;
 		gc_debug("request %zu is big (rounded %zu)", sz, roundsz);
 		/*
 		 * Allocate directly from the big heap. Try to bump-the-pointer,
@@ -456,15 +457,14 @@ retry:
 			gc_debug("found free blocks starting at %s\n", gc_cap_str(blk));
 			ptr = blk;
 		} else {
+			off = gc_cheri_getoffset(
+			    gc_state_c->gs_btbl_big.bt_base);
+			indx = off / gc_state_c->gs_btbl_big.bt_slotsz;
 			ptr = gc_cheri_incbase(gc_state_c->gs_btbl_big.bt_base,
-			    gc_cheri_getoffset(
-			    gc_state_c->gs_btbl_big.bt_base));
-			ptr = gc_cheri_setoffset(ptr, 0);
-			ptr = gc_cheri_setlen(ptr, roundsz);
+			    off);
 			gc_state_c->gs_btbl_big.bt_base += roundsz;
 			/* Set relevant bits as unfree in table. */
-			indx = ((uintptr_t)ptr - (uintptr_t)gc_cheri_getbase(
-			    gc_state_c->gs_btbl_big.bt_base)) >> GC_LOG_BIGSZ;
+			gc_debug("set map: %d\n", indx);
 			gc_btbl_set_map(&gc_state_c->gs_btbl_big, indx, indx,
 			    GC_BTBL_USED);
 			if (roundsz / GC_BIGSZ > 1)
@@ -472,6 +472,9 @@ retry:
 				    indx + 1, indx + roundsz / GC_BIGSZ - 1,
 				    GC_BTBL_CONT);
 		}
+		ptr = gc_cheri_setoffset(ptr, 0);
+		ptr = gc_cheri_setlen(ptr, sz);
+		gc_fill_used_mem(ptr, roundsz);
 	} else {
 		roundsz = GC_ROUND_POW2(sz);
 		logsz = GC_LOG2(roundsz);
@@ -518,6 +521,7 @@ retry:
 		blk->bk_free &= ~(1ULL << indx);
 		ptr = gc_cheri_incbase(blk, indx * roundsz);
 		ptr = gc_cheri_setlen(ptr, sz);
+		gc_fill_used_mem(ptr, roundsz);
 	}
 #ifdef GC_COLLECT_STATS
 	if (ptr) {

@@ -124,3 +124,40 @@ gc_print_siginfo_status(void)
 	    SZFORMAT(btbls_sz), SZFORMAT(btblb_sz),
 	    gc_state_c->gs_ntcollect);
 }
+
+void
+gc_fill(_gc_cap void *obj, uint32_t magic)
+{
+	_gc_cap uint32_t *ip;
+	_gc_cap uint8_t *cp;
+	size_t len, rem, i;
+
+	cp = gc_cheri_setoffset(obj, 0);
+	ip = gc_cheri_setoffset(obj, 0);
+	len = gc_cheri_getlen(ip) / sizeof(uint32_t);
+	rem = gc_cheri_getlen(ip) % sizeof(uint32_t);
+
+	for (i = 0; i < len; i++)
+		ip[i] = magic;
+	for (i = 0; i < rem; i++)
+		cp[len * sizeof(uint32_t) + i] =
+		    (magic >> (24 - (8 * i))) & 0xFF;
+}
+
+void
+gc_fill_used_mem(_gc_cap void *obj, size_t roundsz)
+{
+
+	gc_debug("fill with INIT_USE: %s\n", gc_cap_str(obj));
+	gc_fill(obj, GC_MAGIC_INIT_USE);
+	obj = gc_cheri_ptr((void*)(gc_cheri_getbase(obj) +
+	    gc_cheri_getlen(obj)), roundsz - gc_cheri_getlen(obj));
+	gc_debug("fill with INIT_INTERNAL: %s\n", gc_cap_str(obj));
+	gc_fill(obj, GC_MAGIC_INIT_INTERNAL);
+}
+
+void
+gc_fill_free_mem(_gc_cap void *obj)
+{
+	gc_fill(obj, GC_MAGIC_INIT_FREE);
+}
