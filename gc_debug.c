@@ -54,7 +54,7 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 	uint64_t addr;
 	uint64_t prev_cont_addr;
 	uint64_t prev_addr;
-	uint8_t base, byte;
+	uint8_t byte;
 
 	gc_debug("btbl base: %s\n", gc_cap_str(btbl->bt_base));
 	prev_cont_addr = 0;
@@ -103,6 +103,21 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 		else
 			gc_debug("0x%llx-0x%llx  (continuation data)",
 			    prev_cont_addr, prev_addr);
+	}
+}
+
+void
+gc_print_vm_tbl(_gc_cap struct gc_vm_tbl *vt)
+{
+	size_t i;
+	_gc_cap struct gc_vm_ent *ve;
+
+	for (i = 0; i < vt->vt_sz; i++) {
+		ve = &vt->vt_ent[i];
+		gc_debug("0x%llx-0x%llx: sz=%llu%c p=0x%x t=0x%x",
+		    ve->ve_start, ve->ve_end,
+		    SZFORMAT(ve->ve_end - ve->ve_start),
+		    ve->ve_prot, ve->ve_type);
 	}
 }
 

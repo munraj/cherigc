@@ -123,6 +123,7 @@ gc_cmdrn(char **arg)
 	const char **namep;
 	int rc;
 
+	rc = 0;
 	for (cmd = gc_cmds; cmd->c_cmd != NULL; cmd++) {
 		for (namep = cmd->c_cmd; *namep != NULL; namep++) {
 			if (strcmp(*namep, arg[0]) == 0) {
@@ -133,7 +134,6 @@ gc_cmdrn(char **arg)
 	}
 	if (cmd->c_cmd == NULL) {
 		printf("unrecognized: `%s'\n", arg[0]);
-		rc = 0;
 	}
 done:
 	return (rc);

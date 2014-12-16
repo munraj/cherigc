@@ -11,6 +11,7 @@
 
 #include "gc_cheri.h"
 #include "gc_stack.h"
+#include "gc_vm.h"
 
 struct gc_blk {
 	_gc_cap struct gc_blk	*bk_next;	/* next block in the list */
@@ -189,6 +190,8 @@ struct gc_state {
 	_gc_cap struct gc_stack	*gs_mark_stack_c;
 	/* Capability to sweep stack with correct bound. */
 	_gc_cap struct gc_stack	*gs_sweep_stack_c;
+	/* Table of memory mappings */
+	struct gc_vm_tbl	 gs_vt;
 #ifdef GC_COLLECT_STATS
 	/* Number of objects currently allocated (roughly). */
 	size_t			 gs_nalloc;

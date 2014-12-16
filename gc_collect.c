@@ -274,7 +274,7 @@ gc_resume_sweeping(void)
 	void *addr;
 	uint64_t tmp;
 	int empty, i, j, small, hdrbits, freecont;
-	uint8_t byte, type, mask;
+	uint8_t byte, type;
 
 	empty = gc_stack_pop(gc_state_c->gs_sweep_stack_c, gc_cap_addr(&btbl));
 	if (empty) {

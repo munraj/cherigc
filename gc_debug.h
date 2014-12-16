@@ -1,8 +1,9 @@
 #ifndef _GC_DEBUG_H_
 #define _GC_DEBUG_H_
 
-#include "gc_cheri.h"
 #include "gc.h"
+#include "gc_cheri.h"
+#include "gc_vm.h"
 
 #define	X_GC_LOG							\
 	X(GC_LOG_ERROR,	0, "error")					\
@@ -25,6 +26,8 @@ const char	*gc_log_severity_str(int _severity);
 const char	*gc_cap_str(_gc_cap void *_ptr);
 /* Prints the map of a block table, without outputting the free blocks. */
 void		 gc_print_map(_gc_cap struct gc_btbl *_btbl);
+/* Prints memory map info. */
+void		 gc_print_vm_tbl(_gc_cap struct gc_vm_tbl *_vt);
 void		 gc_print_siginfo_status(void);
 
 /* Initializes the memory for this object with a magic pattern, in

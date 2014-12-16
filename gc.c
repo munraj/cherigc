@@ -108,8 +108,9 @@ gc_init(void)
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_small,
 	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL);
 	/* 1024*16384 => 16MB heap. */
+	/* XXX: 100kB heap */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_big,
-	    GC_BIGSZ, 16384, 0);
+	    GC_BIGSZ, 100/*16384*/, 0);
 
 	if (gc_stack_init(&gc_state_c->gs_mark_stack, GC_STACKSZ) != 0) {
 		gc_error("gc_init_stack(%zu)", GC_STACKSZ);
@@ -129,6 +130,14 @@ gc_init(void)
 
 	gc_state_c->gs_stack_bottom = gc_get_stack_bottom();
 	gc_state_c->gs_static_region = gc_get_static_region();
+
+	/* Get memory mapping information (typically from libprocstat). */
+	if (gc_vm_tbl_get(&gc_state_c->gs_vt) != 0) {
+		gc_error("gc_vm_tbl_get");
+		return (1);
+	}
+	gc_print_vm_tbl(&gc_state_c->gs_vt);
+	gc_cmdln();
 
 	gc_debug("gc_init success");
 	return (0);
@@ -289,6 +298,8 @@ gc_set_mark(_gc_cap void *ptr)
 			byte = gc_state_c->gs_btbl_big.bt_map[indx / 4];
 		else {
 			/* NOTREACHABLE */
+			GC_NOTREACHABLE_ERROR();
+			return (-1);
 		}
 		GC_BTBL_SETTYPE(byte, indx, GC_BTBL_USED_MARKED);
 		gc_state_c->gs_btbl_big.bt_map[indx / 4] = byte;
@@ -301,7 +312,10 @@ gc_set_mark(_gc_cap void *ptr)
 		return (GC_OBJ_USED);
 	} else {
 		/* NOTREACHABLE */
+		GC_NOTREACHABLE_ERROR();
+		return (-1);
 	}
+	/* NOTREACHABLE */
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
 }
