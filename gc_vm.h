@@ -6,12 +6,15 @@
 
 #include "gc_cheri.h"
 
+struct gc_btbl;
+
 /* A range of page mappings */
 struct gc_vm_ent {
 	uint64_t	ve_start;	/* start address */
 	uint64_t	ve_end;		/* end address */
 	uint32_t	ve_prot;	/* protection */
-	uint32_t	ve_type;	/* GC-specific type */
+	uint32_t	ve_type;	/* KVME type */
+	uint32_t	ve_gctype;	/* GC-specific type */
 };
 
 #define	GC_VE_PROT_RD		0x00000001UL
@@ -24,11 +27,17 @@ struct gc_vm_ent {
 struct gc_vm_tbl {
 	/* Page mapping entries. */
 	_gc_cap struct gc_vm_ent	*vt_ent;
-	/* Number of entries. */
+	/* Number of allocated entries. */
 	size_t				 vt_sz;
+	/* Number of valid entries. */
+	size_t				 vt_nent;
 };
 
-int	gc_vm_tbl_get(_gc_cap struct gc_vm_tbl *_vt);
+/* Returns GC_SUCC, GC_ERROR or GC_TOO_SMALL. */
+int	gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *_vt);
 int	gc_vm_tbl_alloc(_gc_cap struct gc_vm_tbl *_vt, size_t _sz);
+_gc_cap struct gc_vm_ent	*gc_vm_tbl_find_btbl(
+				    _gc_cap struct gc_vm_tbl *vt,
+				    _gc_cap struct gc_btbl *bt);
 
 #endif /* !_GC_VM_H_ */

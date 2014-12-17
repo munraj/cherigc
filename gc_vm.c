@@ -22,11 +22,12 @@ gc_vm_tbl_alloc(_gc_cap struct gc_vm_tbl *vt, size_t sz)
 	if (vt->vt_ent == NULL)
 		return (1);
 	vt->vt_sz = sz;
+	vt->vt_nent = 0;
 	return (0);
 }
 
 int
-gc_vm_tbl_get(_gc_cap struct gc_vm_tbl *vt)
+gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *vt)
 {
 #ifdef GC_USE_LIBPROCSTAT
 	struct procstat *ps;
@@ -36,30 +37,53 @@ gc_vm_tbl_get(_gc_cap struct gc_vm_tbl *vt)
 
 	ps = procstat_open_sysctl();
 	if (ps == NULL)
-		return (1);
+		return (GC_ERROR);
 	cnt = 0;
 	kp = procstat_getprocs(ps, KERN_PROC_PID, getpid(), &cnt);
 	if (kp == NULL)
-		return (1);
-	gc_debug("getprocs retrieved %u procs\n", cnt);
+		return (GC_ERROR);
+	gc_debug("getprocs retrieved %u procs", cnt);
 	kv = procstat_getvmmap(ps, kp, &cnt);
 	if (kv == NULL)
-		return (1);
-	gc_debug("getvmmap retrieved %u entries\n", cnt);
-	if (gc_vm_tbl_alloc(vt, cnt) != 0)
-		return (1);
-	for (i = 0; i < vt->vt_sz; i++) {
+		return (GC_ERROR);
+	gc_debug("getvmmap retrieved %u entries", cnt);
+	if (vt->vt_sz < cnt)
+		return (GC_TOO_SMALL);
+	vt->vt_nent = cnt;
+	for (i = 0; i < vt->vt_nent; i++) {
 		vt->vt_ent[i].ve_start = kv[i].kve_start;
 		vt->vt_ent[i].ve_end = kv[i].kve_end;
 		vt->vt_ent[i].ve_prot = kv[i].kve_protection;
-		vt->vt_ent[i].ve_type = 0;
+		vt->vt_ent[i].ve_type = kv[i].kve_type;
+		vt->vt_ent[i].ve_gctype = 0;
 	}
 	procstat_freevmmap(ps, kv);
 	procstat_freeprocs(ps, kp);
 	procstat_close(ps);
-	return (0);
+	return (GC_SUCC);
 #else /* !GC_USE_LIBPROCSTAT */
-	return (1);
+	return (GC_ERROR);
 #endif /* GC_USE_LIBPROCSTAT */
 }
+
+_gc_cap struct gc_vm_ent *
+gc_vm_tbl_find_btbl(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_btbl *bt)
+{
+	size_t i;
+	_gc_cap struct gc_vm_ent *ve;
+	uint64_t start, end;
+
+	start = gc_cheri_getbase(bt->bt_base);
+	end = start + gc_cheri_getlen(bt->bt_base);
+	for (i = 0; i < vt->vt_nent; i++) {
+		ve = &vt->vt_ent[i];
+		gc_debug("search:[%llx,%llx] cur:[%llx,%llx]",
+			start,end,ve->ve_start,ve->ve_end);
+		if (ve->ve_start == start && ve->ve_end == end)
+			return (ve);
+	}
+
+	return (NULL);
+}
+
 

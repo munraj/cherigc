@@ -106,18 +106,34 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 	}
 }
 
+const char *
+gc_ve_prot_str(uint32_t prot)
+{
+	static char s[4];
+
+	snprintf(s, sizeof(s), "%c%c%c",
+	    (prot & GC_VE_PROT_RD) ? 'r' : '-',
+	    (prot & GC_VE_PROT_WR) ? 'w' : '-',
+	    (prot & GC_VE_PROT_EX) ? 'x' : '-');
+	return (s);
+}
+
 void
 gc_print_vm_tbl(_gc_cap struct gc_vm_tbl *vt)
 {
 	size_t i;
 	_gc_cap struct gc_vm_ent *ve;
 
-	for (i = 0; i < vt->vt_sz; i++) {
+	gc_debug("vm table: %zu active entries (space for %zu)\n",
+	    vt->vt_nent, vt->vt_sz);
+
+	for (i = 0; i < vt->vt_nent; i++) {
 		ve = &vt->vt_ent[i];
-		gc_debug("0x%llx-0x%llx: sz=%llu%c p=0x%x t=0x%x",
+		gc_debug("0x%llx-0x%llx: p=%s sz=%3llu%c t=0x%x",
 		    ve->ve_start, ve->ve_end,
+		    gc_ve_prot_str(ve->ve_prot),
 		    SZFORMAT(ve->ve_end - ve->ve_start),
-		    ve->ve_prot, ve->ve_type);
+		    ve->ve_type);
 	}
 }
 

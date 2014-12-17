@@ -90,6 +90,7 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 int
 gc_init(void)
 {
+	/*_gc_cap struct gc_vm_ent *ve;*/
 
 	gc_debug("gc_init enter");
 	gc_state_c = gc_alloc_internal(sizeof(struct gc_state));
@@ -131,13 +132,36 @@ gc_init(void)
 	gc_state_c->gs_stack_bottom = gc_get_stack_bottom();
 	gc_state_c->gs_static_region = gc_get_static_region();
 
-	/* Get memory mapping information (typically from libprocstat). */
-	if (gc_vm_tbl_get(&gc_state_c->gs_vt) != 0) {
-		gc_error("gc_vm_tbl_get");
+	if (gc_vm_tbl_alloc(&gc_state_c->gs_vt,
+	    GC_PAGESZ / sizeof(struct gc_vm_ent)) != 0) {
+		gc_error("gc_vm_tbl_alloc");
 		return (1);
 	}
+
+	/* Get memory mapping information (typically from libprocstat). */
+	if (gc_vm_tbl_update(&gc_state_c->gs_vt) != GC_SUCC) {
+		gc_error("gc_vm_tbl_update");
+		return (1);
+	}
+
+	/*ve = gc_vm_tbl_find_btbl(&gc_state_c->gs_vt, &gc_state_c->gs_btbl_big);
+	if (ve == NULL) {
+		gc_error("no mapping for big btbl");
+		return (1);
+	}
+	ve->ve_gctype |= GC_VE_TYPE_MANAGED;
+	
+	ve = gc_vm_tbl_find_btbl(&gc_state_c->gs_vt,
+	    &gc_state_c->gs_btbl_small);
+	if (ve == NULL) {
+		gc_error("no mapping for small btbl");
+		return (1);
+	}
+	ve->ve_gctype |= GC_VE_TYPE_MANAGED;*/
+
 	gc_print_vm_tbl(&gc_state_c->gs_vt);
 	gc_cmdln();
+	
 
 	gc_debug("gc_init success");
 	return (0);

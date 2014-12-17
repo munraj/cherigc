@@ -337,11 +337,15 @@ int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
  */
 int		 gc_get_obj(_gc_cap void *_p, _gc_cap void * _gc_cap *_out_p);
 
+/* Error codes and return values. */
 #define GC_OBJ_USED		0	/* managed by GC, currently in use */
 #define GC_OBJ_FREE		1	/* managed by GC, currently free */
 #define GC_OBJ_UNMANAGED	2	/* not managed by GC */
 /* Managed by GC, in use, but already marked. */
 #define GC_OBJ_ALREADY_MARKED	3
 #define GC_INVALID_BTBL		4	/* invalid block table */
+#define GC_TOO_SMALL		5	/* size too small */
+#define GC_SUCC			0	/* success */
+#define GC_ERROR		1	/* failure */
 
 #endif /* !_GC_H_ */
