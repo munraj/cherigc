@@ -60,6 +60,10 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
     int flags)
 {
 	size_t sz;
+	size_t memsz;
+	size_t mapsz;
+	size_t tagsz;
+	size_t npages;
 
 	/* Round up nslots to next multiple of 4. */
 	nslots = (nslots + (size_t)3) & ~(size_t)3;
@@ -67,23 +71,36 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 
 	memset((void *)btbl, 0, sizeof(struct gc_btbl));
 
-	btbl->bt_base = gc_alloc_internal(slotsz * nslots);
+	memsz = slotsz * nslots;
+	mapsz = nslots / 4;
+	npages = memsz / GC_PAGESZ;
+	tagsz = npages * sizeof(*btbl->bt_tags);
+
+	btbl->bt_base = gc_alloc_internal(memsz);
 	if (btbl->bt_base == NULL)
-		gc_error("gc_alloc_internal(%zu)", slotsz * nslots);
+		gc_error("gc_alloc_internal(%zu)", memsz);
 	gc_fill_free_mem(btbl->bt_base);
 
-	btbl->bt_map = gc_alloc_internal(nslots / 4);
+	/* Contiguously allocate map and tags. */
+	btbl->bt_map = gc_alloc_internal(mapsz + tagsz);
 	if (btbl->bt_map == NULL) {
 		/* XXX: TODO: Free btbl->base. */
-		gc_error("gc_alloc_internal(%zu)", nslots / 4);
+		gc_error("gc_alloc_internal(%zu)", mapsz + tagsz);
 	}
-	memset((void *)btbl->bt_map, 0, nslots / 4);
+	memset((void *)btbl->bt_map, 0, mapsz + tagsz);
+	btbl->bt_tags = gc_cheri_incbase(
+	    btbl->bt_map, mapsz);
+	btbl->bt_map = gc_cheri_ptr(
+	    (void *)btbl->bt_map, mapsz);
 
 	btbl->bt_slotsz = slotsz;
 	btbl->bt_nslots = nslots;
 	btbl->bt_flags = flags;
 
+	gc_debug("allocated a block table with %zu slots of size %zu each",
+	    nslots, slotsz);
 	gc_debug("allocated btbl map: %s", gc_cap_str(btbl->bt_map));
+	gc_debug("allocated btbl tags: %s", gc_cap_str(btbl->bt_tags));
 	gc_debug("allocated btbl base: %s", gc_cap_str(btbl->bt_base));
 }
 
@@ -160,7 +177,7 @@ gc_init(void)
 	ve->ve_gctype |= GC_VE_TYPE_MANAGED;*/
 
 	gc_print_vm_tbl(&gc_state_c->gs_vt);
-	gc_cmdln();
+	//gc_cmdln();
 	
 
 	gc_debug("gc_init success");
@@ -291,7 +308,7 @@ gc_set_mark(_gc_cap void *ptr)
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 
 	/* Try small region. */
-	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, ptr);
+	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, NULL, ptr);
 	gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc, indx);
 	if (rc == GC_OBJ_FREE)
 		return (GC_OBJ_FREE);
@@ -329,7 +346,7 @@ gc_set_mark(_gc_cap void *ptr)
 		gc_state_c->gs_btbl_big.bt_map[indx / 4] = byte;
 #ifdef GC_COLLECT_STATS
 		gc_state_c->gs_nmark++;
-		gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)));
+		gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)), NULL, NULL, NULL, NULL);
 		gc_state_c->gs_nmarkbytes += gc_cheri_getlen(ptr);
 #endif
 		gc_debug("set mark for big object at index %zu", indx);
@@ -375,7 +392,7 @@ gc_get_btbl_indx(_gc_cap struct gc_btbl *btbl, size_t *out_indx,
 
 int
 gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
-    size_t *out_indx, _gc_cap void *ptr)
+    size_t *out_sml_indx, size_t *out_big_indx, _gc_cap void *ptr)
 {
 	size_t indx, logslotsz;
 	uintptr_t mask;
@@ -385,13 +402,15 @@ gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
 		return (GC_INVALID_BTBL);
 	if (gc_get_btbl_indx(btbl, &indx, &type, ptr) != 0)
 		return (GC_OBJ_UNMANAGED);
+	if (out_big_indx != NULL)
+		*out_big_indx = indx;
 	if (type == GC_BTBL_USED) {
 		/* This block contains block header. */
 		logslotsz = GC_LOG2(btbl->bt_slotsz);
 		mask = ((uintptr_t)1 << logslotsz) - (uintptr_t)1;
 		*out_blk = cheri_ptr((void*)((uintptr_t)ptr & ~mask),
 		    btbl->bt_slotsz);
-		*out_indx = ((uintptr_t)ptr - (uintptr_t)*out_blk) /
+		*out_sml_indx = ((uintptr_t)ptr - (uintptr_t)*out_blk) /
 		    (*out_blk)->bk_objsz;
 		return (GC_OBJ_USED);
 	} else if (type == GC_BTBL_FREE) {
@@ -426,6 +445,25 @@ gc_ins_blk(_gc_cap struct gc_blk *blk, _gc_cap struct gc_blk **list)
 		(*list)->bk_prev = blk;
 	}
 	*list = blk;
+}
+
+void
+gc_extern_collect(void)
+{
+	size_t len; /* XXX: first var */
+	_gc_cap void *c16;
+
+	len = (uintptr_t)gc_state_c->gs_stack_bottom -
+	    (uintptr_t)GC_ALIGN(&len);
+	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(&len), len);
+	c16 = gc_state_c->gs_regs_c;
+	__asm__ __volatile__ (
+		"cmove $c16, %0" : : "C"(c16) : "memory", "$c16"
+	);
+	GC_SAVE_REGS(16);
+	gc_collect();
+	GC_RESTORE_REGS(16);
+	GC_INVALIDATE_UNUSED_REGS;
 }
 
 _gc_cap void *
@@ -564,7 +602,7 @@ retry:
 #ifdef GC_COLLECT_STATS
 	if (ptr) {
 		gc_state_c->gs_nalloc++;
-		gc_state_c->gs_nallocbytes += gc_cheri_getlen(ptr);
+		gc_state_c->gs_nallocbytes += roundsz;
 	}
 #endif
 	gc_debug("returning %s", gc_cap_str(ptr));
@@ -601,17 +639,31 @@ gc_alloc_internal(size_t sz)
 }
 
 int
-gc_get_obj(_gc_cap void *ptr, _gc_cap void * _gc_cap *out_ptr)
+gc_get_obj(_gc_cap void *ptr,
+    _gc_cap void * _gc_cap *out_ptr,
+    _gc_cap struct gc_btbl * _gc_cap *out_btbl,
+    _gc_cap size_t *out_big_indx,
+    _gc_cap struct gc_blk * _gc_cap *out_blk,
+    _gc_cap size_t *out_sml_indx)
 {
 	int rc;
 	_gc_cap struct gc_blk *blk;
 	void * base;
-	size_t indx, len, i, j;
+	size_t indx, big_indx, len, i, j;
 	uint8_t byte, type;
 
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 	/* Try small region */
-	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, ptr);
+	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, &big_indx, ptr);
+	if (out_btbl != NULL)
+		*out_btbl = &gc_state_c->gs_btbl_small;
+	if (out_big_indx != NULL)
+		*out_big_indx = big_indx;
+	if (out_blk != NULL)
+		*out_blk = blk;
+	if (out_sml_indx != NULL)
+		*out_sml_indx = indx;
+
 	if (rc == GC_OBJ_FREE)
 		return (GC_OBJ_FREE);
 	if (rc == GC_OBJ_USED) {
@@ -625,6 +677,14 @@ gc_get_obj(_gc_cap void *ptr, _gc_cap void * _gc_cap *out_ptr)
 		/* Try big region. */
 		rc = gc_get_btbl_indx(&gc_state_c->gs_btbl_big, &indx, &type,
 		    ptr);
+		if (out_btbl != NULL)
+			*out_btbl = &gc_state_c->gs_btbl_big;
+		if (out_big_indx != NULL)
+			*out_big_indx = indx;
+		if (out_blk != NULL)
+			*out_blk = NULL;
+		if (out_sml_indx != NULL)
+			*out_sml_indx = NULL;
 		if (rc != 0)
 			return (GC_OBJ_UNMANAGED);
 		base = (char*)gc_cheri_getbase(
@@ -663,4 +723,19 @@ gc_get_obj(_gc_cap void *ptr, _gc_cap void * _gc_cap *out_ptr)
 	}
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
+}
+
+struct gc_tags
+gc_get_or_update_tags(_gc_cap struct gc_btbl *btbl, size_t page_indx)
+{
+	_gc_cap void *page;
+
+	if (!btbl->bt_tags[page_indx].tg_v) {
+		/* Construct page capability. */
+		page = gc_cheri_incbase(btbl->bt_base, page_indx * GC_PAGESZ);
+		page = gc_cheri_setlen(page, GC_PAGESZ);
+		btbl->bt_tags[page_indx] = gc_get_page_tags(page);
+	}
+
+	return (btbl->bt_tags[page_indx]);
 }

@@ -26,5 +26,6 @@ gc_cmd_fn	gc_cmd_cont;
 gc_cmd_fn	gc_cmd_next;
 gc_cmd_fn	gc_cmd_stat;
 gc_cmd_fn	gc_cmd_map;
+gc_cmd_fn	gc_cmd_quit;
 
 #endif /* !_GC_CMDLN_H_ */

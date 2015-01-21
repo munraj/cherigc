@@ -12,6 +12,7 @@
 #include "gc_cheri.h"
 #include "gc_stack.h"
 #include "gc_vm.h"
+#include "gc_scan.h"
 
 struct gc_blk {
 	_gc_cap struct gc_blk	*bk_next;	/* next block in the list */
@@ -57,6 +58,9 @@ struct gc_blk {
  * The btbl stores information for slotsz*nslots*4 many bytes of
  * data.
  *
+ * Note that the tags are indexed by page, whereas the map is
+ * indexed by slot.
+ *
  * flags & GC_BTBL_FLAG_SMALL:
  * The data blocks store small objects.
  * Two-bit entry for each page from the base.
@@ -79,6 +83,7 @@ struct gc_btbl {
 	size_t		 bt_nslots;	/* number of blocks */
 	int		 bt_flags;	/* flags */
 	_gc_cap uint8_t	*bt_map;	/* size: bt_nslots/4 */
+	_gc_cap struct gc_tags	*bt_tags;	/* array of tags for each page */
 };
 
 /* Construct an index into the map. */
@@ -113,7 +118,9 @@ struct gc_btbl {
  *
  * GC_PAGESZ
  * The size of a page. This is the minimum unit of allocation used
- * when requesting memory from the operating system.
+ * when requesting memory from the operating system. It is also the
+ * size used to manage tag bits: the gc_tags structure stores tags for
+ * blocks of size GC_PAGESZ.
  *
  * GC_STACKSZ
  * The size of the mark stack in bytes. Should be a multiple of the
@@ -240,13 +247,36 @@ extern _gc_cap struct gc_state	*gc_state_c;
 /* Round size to next multiple of GC_BIGSZ. */
 #define GC_ROUND_BIGSZ(x) (((x) + GC_BIGSZ - 1) & ~(GC_BIGSZ - 1))
 
+/* Round up to next multiple of GC_PAGESZ. */
+#define GC_ROUND_PAGESZ(x) (((x) + (size_t)GC_PAGESZ - 1) & ~((size_t)GC_PAGESZ - 1))
+
+/* Round down to next multiple of GC_PAGESZ. */
+#define GC_ALIGN_PAGESZ(x) ((x) & ~GC_PAGEMASK)
+
 /* Calculate base-2 logarithm when x is known to be a power of two. */
 #define GC_LOG2(x) gc_log2(x)
 
 /* Calculate the first bit set in an integer. */
 #define GC_FIRST_BIT(x) gc_first_bit(x)
 
+/* Convert block table slot index into page index. */
+#define	GC_SLOT_IDX_TO_PAGE_IDX(btbl, indx)			\
+	(((indx) * (btbl)->bt_slotsz) / GC_PAGESZ)
+
+/* Convert block table slot index into offset within page. */
+#define	GC_SLOT_IDX_TO_PAGE_OFF(btbl, indx)			\
+	(((indx) * (btbl)->bt_slotsz) % GC_PAGESZ)
+
+/* Tag granularity (<=> size of a capability). */
+#define	GC_TAG_GRAN 32
+
 int		 gc_init(void);
+
+/*
+ * Force collection. Saves regs, stack and calls gc_collect.
+ */
+void		 gc_extern_collect(void);
+
 _gc_cap void	*gc_malloc(size_t _sz);
 void		 gc_free(_gc_cap void *_p);
 /*
@@ -322,7 +352,8 @@ int		 gc_get_btbl_indx(_gc_cap struct gc_btbl *_btbl,
  * GC_INVALID_BTBL: wrong btbl for this operation (requires SMALL flag).
  */
 int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
-		    _gc_cap struct gc_blk **_out_blk, size_t *_out_indx,
+		    _gc_cap struct gc_blk **_out_blk,
+		    size_t *_out_sml_indx, size_t *_out_big_indx,
 		    _gc_cap void *_p);
 
 /*
@@ -334,8 +365,20 @@ int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
  *		could be allocated in the future (value of out_ptr
  *		indeterminate: undefined if block not allocated).
  * GC_OBJ_UNMANAGED: the object is unmanaged by the GC.
+ *
+ * When the status is GC_OBJ_USED or GC_OBJ_FREE:
+ * - the object's block table is returned in *_out_btbl.
+ * - the object's index in the block table is returned in *_out_big_indx.
+ * - for SMALL btbls, the object's index in its block is returned in _out_sml_indx.
+ *
+ * When the status is GC_OBJ_UNMANAGED, these values are undefined.
  */
-int		 gc_get_obj(_gc_cap void *_p, _gc_cap void * _gc_cap *_out_p);
+int		 gc_get_obj(_gc_cap void *_p,
+		    _gc_cap void * _gc_cap *_out_p,
+		    _gc_cap struct gc_btbl * _gc_cap *_out_btbl,
+		    _gc_cap size_t *_out_big_indx,
+		    _gc_cap struct gc_blk * _gc_cap *_out_blk,
+		    _gc_cap size_t *_out_sml_indx);
 
 /* Error codes and return values. */
 #define GC_OBJ_USED		0	/* managed by GC, currently in use */
@@ -347,5 +390,14 @@ int		 gc_get_obj(_gc_cap void *_p, _gc_cap void * _gc_cap *_out_p);
 #define GC_TOO_SMALL		5	/* size too small */
 #define GC_SUCC			0	/* success */
 #define GC_ERROR		1	/* failure */
+
+/*
+ * Obtain the tags for a page by checking the block tables, and
+ * updating them if necessary.
+ * The length of the given capability is ignored, but the offset
+ * is considered.
+ */
+struct gc_tags	 gc_get_or_update_tags(_gc_cap struct gc_btbl *_btbl,
+		    size_t _page_indx);
 
 #endif /* !_GC_H_ */

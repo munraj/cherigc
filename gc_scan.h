@@ -5,8 +5,9 @@
 
 struct gc_tags
 {
-	uint64_t	tg_lo;
-	uint64_t	tg_hi;
+	uint64_t	tg_lo;	/* tags for low 2048 bytes */
+	uint64_t	tg_hi;	/* tags for high 2048 bytes */
+	int		tg_v;	/* non-zero => tags valid */
 };
 
 void		gc_scan_region(_gc_cap void *region);

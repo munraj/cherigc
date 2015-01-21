@@ -21,17 +21,23 @@ gc_get_page_tags(_gc_cap void *page)
 	struct gc_tags tags;
 	uint64_t * tagp;
 	uint64_t mask;
+	size_t len;
 
-	scan = gc_cheri_ptr((void*)(gc_cheri_getbase(page) +
+	/* assert(gc_cheri_getoffset(page) == 0) */
+	/* assert(gc_cheri_getlen(page) == GC_PAGESZ) */
+
+	scan = (_gc_cap void * _gc_cap *)page;
+
+	/*scan = gc_cheri_ptr((void*)(gc_cheri_getbase(page) +
 	    gc_cheri_getoffset(page)),
-	    /* GC_PAGESZ */ /* XXX: can't do this! */
-	    gc_cheri_getlen(page));
+	    gc_cheri_getlen(page));*/
 	tags.tg_lo = 0;
 	tags.tg_hi = 0;
+	tags.tg_v = 1;
 	mask = 1ULL;
 	tagp = &tags.tg_lo;
-	for (; gc_cheri_getoffset(scan) < gc_cheri_getlen(page);
-	    scan++, mask <<= 1) {
+	len = gc_cheri_getlen(page);
+	for (; gc_cheri_getoffset(scan) < len; scan++, mask <<= 1) {
 		if (!mask) {
 			mask = 1ULL;
 			tagp = &tags.tg_hi;

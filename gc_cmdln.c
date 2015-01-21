@@ -16,6 +16,8 @@ struct gc_cmd	gc_cmds[] = {
 	 .c_desc = "Display statistics"},
 	{.c_cmd = (const char *[]){"map", "m", NULL}, .c_fn = &gc_cmd_map,
 	 .c_desc = "Display btbl map"},
+	{.c_cmd = (const char *[]){"quit", "q", NULL}, .c_fn = &gc_cmd_quit,
+	 .c_desc = "Quit"},
 	{.c_cmd = NULL},
 };
 
@@ -81,6 +83,13 @@ gc_cmd_map(struct gc_cmd *cmd, char **arg)
 		gc_print_map(btbl);
 
 	return (0);
+}
+
+int
+gc_cmd_quit(struct gc_cmd *cmd, char **arg)
+{
+
+	exit(1);
 }
 
 void

@@ -27,13 +27,15 @@ testfn		test_procstat;
 #endif
 testfn		test_gc_malloc;
 testfn		test_ll;
+testfn		test_store;
 
 struct tf_test	tests[] = {
 	{.t_fn = test_gc_init, .t_desc = "gc initialization"},
 #ifdef GC_USE_LIBPROCSTAT
 	/*{.t_fn = test_procstat, .t_desc = "libprocstat", .t_dofork = 0},*/
 #endif
-	{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
+	/*{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},*/
+	{.t_fn = test_store, .t_desc = "ptr store", .t_dofork = 0},
 	/*{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 0},*/
 	{.t_fn = NULL},
 };
@@ -175,7 +177,7 @@ test_ll(struct tf_test *thiz)
 
 	/* Configurable */
 	nmax = 10;
-	nsz = 2000;
+	nsz = 200;
 	junksz = 10000;
 	junkfill = 0x0BADDEAD;
 
@@ -210,9 +212,11 @@ test_ll(struct tf_test *thiz)
 	p = NULL;
 	t = hd;
 	for (i = 0; i < nmax; i++) {
-		thiz->t_assert(t != NULL);
-		thiz->t_assert(t->p == p);
 		thiz->t_pf("checking linked list node %d\n", i);
+		thiz->t_assert(t != NULL);
+		thiz->t_pf("actual prev: %p, stored prev: %p, stored next: %p\n",
+		   p, t->p, t->n);
+		thiz->t_assert(t->p == p);
 		for (j = 0; j < nsz - sizeof(struct node); j++) {
 			h = LLHASH(i, j,
 			    (int)(uintptr_t)t, (int)(uintptr_t)t->p);
@@ -222,6 +226,26 @@ test_ll(struct tf_test *thiz)
 		p = t;
 		t = t->n;
 	}
+
+	return (TF_SUCC);
+}
+
+int
+test_store(struct tf_test *thiz)
+{
+	_gc_cap struct node *n;
+	size_t i;
+
+	n = gc_malloc(254);
+	n->n = 100;
+	printf("addr: 0x%llx\n", &n); /* force n to stack */
+
+	/*for (i = 0; i < 1000; i++)
+	{
+		n->n = gc_malloc(254);
+		n = n->n;
+	}*/
+	gc_extern_collect();
 
 	return (TF_SUCC);
 }

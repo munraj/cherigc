@@ -4,7 +4,11 @@
 #include "gc_cheri.h"
 #include "gc_scan.h"
 
+/*
+ * Collect. Requires regs and stack to be saved.
+ */
 void	gc_collect(void);
+
 void	gc_start_marking(void);
 int	gc_is_unlimited(_gc_cap void *_obj);
 void	gc_scan_tags(_gc_cap void *_obj, struct gc_tags _tags);
@@ -13,5 +17,7 @@ void	gc_push_roots(void);
 void	gc_resume_marking(void);
 void	gc_start_sweeping(void);
 void	gc_resume_sweeping(void);
-
+void	gc_mark_children(_gc_cap void *obj,
+	    _gc_cap struct gc_btbl *btbl, size_t big_indx,
+	    _gc_cap struct gc_blk *blk, size_t sml_indx);
 #endif /* !_GC_COLLECT_H */
