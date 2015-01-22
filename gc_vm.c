@@ -86,4 +86,17 @@ gc_vm_tbl_find_btbl(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_btbl *bt)
 	return (NULL);
 }
 
+_gc_cap struct gc_vm_ent
+*gc_vm_tbl_find(_gc_cap struct gc_vm_tbl *vt, uint64_t addr)
+{
+	size_t i;
+	_gc_cap struct gc_vm_ent *ve;
 
+	for (i = 0; i < vt->vt_nent; i++) {
+		ve = &vt->vt_ent[i];
+		if (addr >= ve->ve_start && addr < ve->ve_end)
+			return (ve);
+	}
+
+	return (NULL);
+}

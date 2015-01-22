@@ -109,6 +109,8 @@ gc_init(void)
 {
 	/*_gc_cap struct gc_vm_ent *ve;*/
 
+	gc_debug_indent_level = 0;
+
 	gc_debug("gc_init enter");
 	gc_state_c = gc_alloc_internal(sizeof(struct gc_state));
 	if (gc_state_c == NULL) {
@@ -408,7 +410,7 @@ gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
 		/* This block contains block header. */
 		logslotsz = GC_LOG2(btbl->bt_slotsz);
 		mask = ((uintptr_t)1 << logslotsz) - (uintptr_t)1;
-		*out_blk = cheri_ptr((void*)((uintptr_t)ptr & ~mask),
+		*out_blk = gc_cheri_ptr((void*)((uintptr_t)ptr & ~mask),
 		    btbl->bt_slotsz);
 		*out_sml_indx = ((uintptr_t)ptr - (uintptr_t)*out_blk) /
 		    (*out_blk)->bk_objsz;
@@ -560,7 +562,6 @@ retry:
 		gc_debug("request %zu is small (rounded %zu, log %zu)",
 		    sz, roundsz, logsz);
 		blk = gc_state_c->gs_heap[logsz];
-		gc_debug("checking if %s is free...\n", gc_cap_str(blk));
 		error = gc_follow_free(&blk); 
 		if (error != 0) {
 			gc_debug("allocating new block");
@@ -684,7 +685,7 @@ gc_get_obj(_gc_cap void *ptr,
 		if (out_blk != NULL)
 			*out_blk = NULL;
 		if (out_sml_indx != NULL)
-			*out_sml_indx = NULL;
+			*out_sml_indx = 0;
 		if (rc != 0)
 			return (GC_OBJ_UNMANAGED);
 		base = (char*)gc_cheri_getbase(

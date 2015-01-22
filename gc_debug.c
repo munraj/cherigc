@@ -5,6 +5,15 @@
 #include "gc_debug.h"
 #include "gc_cmdln.h"
 
+int	gc_debug_indent_level;
+
+int
+gc_debug_indent(int incr)
+{
+
+	gc_debug_indent_level += incr;
+}
+
 const char *
 gc_log_severity_str(int severity)
 {
@@ -36,9 +45,12 @@ void
 gc_log(int severity, const char *file, int line, const char *format, ...)
 {
 	va_list vl;
+	int i;
 
 	va_start(vl, format);
 	fprintf(stderr, "gc:%s:%d: %s: ", file, line, gc_log_severity_str(severity));
+	for (i = 0; i < gc_debug_indent_level; i++)
+		fprintf(stderr, "%s", GC_DEBUG_INDENT_STR);
 	vfprintf(stderr, format, vl);
 	fprintf(stderr, "\n");
 	va_end(vl);
@@ -124,16 +136,12 @@ gc_print_vm_tbl(_gc_cap struct gc_vm_tbl *vt)
 	size_t i;
 	_gc_cap struct gc_vm_ent *ve;
 
-	gc_debug("vm table: %zu active entries (space for %zu)\n",
+	gc_debug("vm table: %zu active entries (space for %zu)",
 	    vt->vt_nent, vt->vt_sz);
 
 	for (i = 0; i < vt->vt_nent; i++) {
 		ve = &vt->vt_ent[i];
-		gc_debug("0x%llx-0x%llx: p=%s sz=%3llu%c t=0x%x",
-		    ve->ve_start, ve->ve_end,
-		    gc_ve_prot_str(ve->ve_prot),
-		    SZFORMAT(ve->ve_end - ve->ve_start),
-		    ve->ve_type);
+		gc_debug(GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
 	}
 }
 
@@ -179,16 +187,17 @@ void
 gc_fill_used_mem(_gc_cap void *obj, size_t roundsz)
 {
 
-	gc_debug("fill with INIT_USE: %s\n", gc_cap_str(obj));
+	gc_debug("fill with INIT_USE: %s", gc_cap_str(obj));
 	gc_fill(obj, GC_MAGIC_INIT_USE);
 	obj = gc_cheri_ptr((void*)(gc_cheri_getbase(obj) +
 	    gc_cheri_getlen(obj)), roundsz - gc_cheri_getlen(obj));
-	gc_debug("fill with INIT_INTERNAL: %s\n", gc_cap_str(obj));
+	gc_debug("fill with INIT_INTERNAL: %s", gc_cap_str(obj));
 	gc_fill(obj, GC_MAGIC_INIT_INTERNAL);
 }
 
 void
 gc_fill_free_mem(_gc_cap void *obj)
 {
+	gc_debug("fill with INIT_FREE: %s", gc_cap_str(obj));
 	gc_fill(obj, GC_MAGIC_INIT_FREE);
 }

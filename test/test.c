@@ -34,7 +34,7 @@ struct tf_test	tests[] = {
 #ifdef GC_USE_LIBPROCSTAT
 	/*{.t_fn = test_procstat, .t_desc = "libprocstat", .t_dofork = 0},*/
 #endif
-	/*{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},*/
+	//{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
 	{.t_fn = test_store, .t_desc = "ptr store", .t_dofork = 0},
 	/*{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 0},*/
 	{.t_fn = NULL},
@@ -238,7 +238,7 @@ test_store(struct tf_test *thiz)
 
 	n = gc_malloc(254);
 	n->n = 100;
-	printf("addr: 0x%llx\n", &n); /* force n to stack */
+	//printf("addr: 0x%llx\n", &n); /* force n to stack */
 
 	/*for (i = 0; i < 1000; i++)
 	{
@@ -246,6 +246,12 @@ test_store(struct tf_test *thiz)
 		n = n->n;
 	}*/
 	gc_extern_collect();
+	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
+	gc_extern_collect();
+	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
+	gc_extern_collect();
 
+	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
+	printf("n->n: %s\n", gc_cap_str(n->n)); /* force n to stack */
 	return (TF_SUCC);
 }

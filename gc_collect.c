@@ -67,10 +67,11 @@ gc_push_roots(void)
 	{
 		gc_debug("root: c%d: %s", 17 + i,
 		    gc_cap_str(gc_state_c->gs_regs_c[i]));
-		if (!gc_cheri_gettag(gc_state_c->gs_regs_c[i]) ||
-		    gc_is_unlimited(gc_state_c->gs_regs_c[i]))
+		if (!gc_cheri_gettag(gc_state_c->gs_regs_c[i]) || /* don't push invalid caps */
+		    gc_is_unlimited(gc_state_c->gs_regs_c[i])) /* don't push all of memory */
 			continue;
 		rc = gc_set_mark(gc_state_c->gs_regs_c[i]);
+		gc_debug("gc_set_mark: rc=%d\n", rc);
 		if (rc == GC_OBJ_FREE) {
 			/*
 			 * Root should not be pointing to this region;
@@ -115,11 +116,11 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	_gc_cap void *raw_obj;
 	int rc, error;
 
-	gc_debug("gc_scan_tags: scanning parent %s, tags 0x%llx\n", gc_cap_str(parent), tags);
+	gc_debug("== gc_scan_tags_64: parent: %s, tags 0x%llx", gc_cap_str(parent), tags);
+	gc_debug_indent(1);
 	for (child_ptr = parent; tags; tags >>= 1, child_ptr++) {
 		if (tags & 1) {
 			raw_obj = *child_ptr;
-			gc_debug("raw child: %s", gc_cap_str(raw_obj));
 			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
 			    NULL, NULL, NULL, NULL);
 			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
@@ -146,6 +147,8 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 			}
 		}
 	}
+	gc_debug_indent(-1);
+	gc_debug("== gc_scan_tags_64: finished: %s", gc_cap_str(parent));
 }
 
 void
@@ -156,6 +159,7 @@ gc_resume_marking(void)
 	size_t sml_indx, big_indx;
 	_gc_cap struct gc_btbl *btbl;
 	_gc_cap struct gc_blk *blk;
+	_gc_cap struct gc_vm_ent *ve;
 
 	if (gc_state_c->gs_mark_state == GC_MS_SWEEP) {
 		gc_resume_sweeping();
@@ -196,6 +200,7 @@ gc_resume_marking(void)
 			/* Impossible: a free object is never pushed. */
 			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE");
 		} else if (rc == GC_OBJ_UNMANAGED) {
+			gc_debug("warning: unmanaged object: %s", gc_cap_str(obj));
 			if (GC_ALIGN(gc_cheri_getbase(obj)) == NULL) {
 				gc_debug("warning: popped pointer is near-NULL");
 				return;
@@ -217,6 +222,17 @@ gc_resume_marking(void)
 			 * in scan below; this would bound the number of scans
 			 * of the same obj).
 			 */
+
+			ve = gc_vm_tbl_find(&gc_state_c->gs_vt,
+			    gc_cheri_getbase(obj));
+			if (ve == NULL) {
+				/* XXX: for now, refuse the scan. */
+				gc_debug("warning: refusing to scan unmanaged object for which VM info could not be obtained.");
+				return;
+			} else {
+				gc_debug("VM mapping for unmanaged object: "
+				    GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
+			}
 		}
 		gc_debug("popped off the mark stack and reconstructed: %s",
 		    gc_cap_str(obj));
@@ -264,38 +280,26 @@ gc_mark_children(_gc_cap void *obj,
 		tags = gc_get_page_tags(page);
 	} else {
 		page_idx = GC_SLOT_IDX_TO_PAGE_IDX(btbl, big_indx);
-		/*if (btbl->bt_flags & GC_BTBL_FLAG_SMALL) {
-			page_off += sml_indx * blk->bk_objsz;
-		}*/
 		tags = gc_get_or_update_tags(btbl, page_idx);
 	}
 
 	tag_off = ((size_t)objlo - pagelo) / GC_TAG_GRAN;
 	tag_end = (pagehi - (size_t)objhi) / GC_TAG_GRAN;
-	gc_debug("pagehi: 0x%llx, pagelo: 0x%llx, tagoff =0x%llx tagend=0x%llx \n", pagehi, pagelo, tag_off, tag_end);
-	gc_cmdln();
-
 
 	/*
 	 * Special case: in the first page, zero out
 	 * the bits before the object starts.
 	 */
-		if(btbl)gc_debug("mark children: flags:%d, big_indx:%zu, smlindx:%zu, slotsz:%zu, base=0x%zx, len=%zu, pageidx=%zu, pageoff=%zu, tagoff=%zu, npage=%zu, tagend=%zu\n", btbl->bt_flags, big_indx, sml_indx, btbl->bt_slotsz, gc_cheri_getbase(obj), len, page_idx, page_off, tag_off, npage, tag_end);
-		gc_debug("mark children: raw tags: lo=0x%llx, hi=0x%llx\n", tags.tg_lo, tags.tg_hi);
 	if (tag_off >= 64) {
 		tags.tg_lo = 0;
 		tag_off -= 64;
 		tags.tg_hi &= ~((1ULL << tag_off) - 1);
-		gc_debug("mark children: >64: tag mask: 0x%zx, tag_off=%zu\n", ~((1ULL<<tag_off)-1), tag_off);
 	} else {
 		tags.tg_lo &= ~((1ULL << tag_off) - 1);
-		gc_debug("mark children: <64: tag mask: 0x%zx, tag_off=%zu\n", ~((1ULL<<tag_off)-1), tag_off);
 	}
-		gc_debug("mark children: new tags: lo=0x%llx, hi=0x%llx\n", tags.tg_lo, tags.tg_hi);
 
 	/* Scan whole pages. */
-	for (i = 0; i < npage; i++) {
-		gc_debug("scanning page %s\n", gc_cap_str(page));
+	for (i = 0; i < npage - 1; i++) {
 		gc_scan_tags(page, tags);
 		page_idx++;
 		page++;
@@ -310,14 +314,12 @@ gc_mark_children(_gc_cap void *obj,
 	 * the bits after the object ends.
 	 */
 	if (tag_end >= 64) {
-		tag_end -= 64;
-		tags.tg_hi &= (1ULL << tag_end) - 1;
-	} else {
-		tags.tg_lo &= (1ULL << tag_end) - 1;
 		tags.tg_hi = 0;
+		tag_end -= 64;
+		tags.tg_lo &= 0xFFFFFFFFFFFFFFFFULL >> tag_end;
+	} else {
+		tags.tg_hi &= 0xFFFFFFFFFFFFFFFFULL >> tag_end;
 	}
-		gc_debug("mark children: tag END mask: 0x%zx, tag_off=%zu\n", (1ULL<<tag_off)-1, tag_off);
-		gc_cmdln();
 	gc_scan_tags(page, tags);
 }
 
@@ -345,7 +347,6 @@ gc_start_sweeping(void)
 	ptr = gc_cheri_setoffset(ptr, 0);
 	ptr = gc_cheri_setlen(ptr, sizeof(struct gc_btbl));
 	error = gc_stack_push(gc_state_c->gs_sweep_stack_c, ptr);
-	gc_debug("pushed %s\n",gc_cap_str(ptr));
 	if (error != 0) {
 		gc_error("sweep stack overflow");
 		return;
@@ -358,10 +359,8 @@ void
 gc_resume_sweeping(void)
 {
 	_gc_cap struct gc_btbl *btbl;
-	_gc_cap struct gc_blk *blk;
 	void *addr;
-	uint64_t tmp;
-	int empty, i, j, small, hdrbits, freecont;
+	int empty, i, j, small, freecont;
 	uint8_t byte, type;
 	size_t npages;
 
@@ -391,108 +390,10 @@ gc_resume_sweeping(void)
 			addr = (char*)gc_cheri_getbase(btbl->bt_base) +
 					GC_BTBL_MKINDX(i, j) * btbl->bt_slotsz;
 			if (!small) {
-				if (type == GC_BTBL_CONT && freecont) {
-					GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
-					gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
-#ifdef GC_COLLECT_STATS
-					gc_state_c->gs_nsweepbytes +=
-					    btbl->bt_slotsz;
-#endif
-				} else if (type == GC_BTBL_USED) {
-					/*
-					 * Used but not marked; free entire
-					 * block.
-					 */
-					GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
-					gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
-					/*
-					 * Next iterations will free
-					 * continuation data.
-					 */
-					freecont = 1;
-#ifdef GC_COLLECT_STATS
-					gc_state_c->gs_nsweep++;
-					gc_state_c->gs_nsweepbytes +=
-					    btbl->bt_slotsz;
-#endif
-					/*gc_debug("swept entire large "
-					    "block at address %p",
-					    addr);*/
-				} else if (type ==
-				    GC_BTBL_USED_MARKED) {
-					GC_BTBL_SETTYPE(byte, j, GC_BTBL_USED);
-					freecont = 0;
-				} else if (freecont) {
-					freecont = 0;
-				}
+				gc_sweep_large_iter(btbl, &byte, type, addr, j,
+				    &freecont);
 			} else {
-				blk = gc_cheri_ptr(addr, GC_BLK_HDRSZ);
-				/* Small btbl. */
-				if (type == GC_BTBL_USED)
-				{
-					hdrbits = (GC_BLK_HDRSZ +
-					    blk->bk_objsz - 1) /
-					    blk->bk_objsz;
-#ifdef GC_COLLECT_STATS
-					/*
-					 *  free  mark  NOR  meaning
-					 *  0     0     1    swept (count)
-					 *  0     1     0    alive (don't count)
-					 *  1     0     0    don't care
-					 *  1     1     0    "impossible"
-					 */
-					tmp = ~(blk->bk_free | blk->bk_marks);
-					tmp &= ((1ULL << (GC_PAGESZ /
-					    blk->bk_objsz)) - 1ULL);
-					tmp &= ~((1ULL << hdrbits) -
-					    1ULL);
-					for (; tmp; tmp >>= 1) {
-						if (tmp & 1) {
-							gc_state_c->gs_nsweep++;
-							gc_state_c->
-							    gs_nsweepbytes +=
-							    blk->bk_objsz;
-						/* TODO: call gc_fill_free_mem on these */
-						}
-					}
-#endif
-					if (!blk->bk_marks) {
-						/* Entire block free. */
-						GC_BTBL_SETTYPE(byte, j, GC_BTBL_FREE);
-						/* Remove blk from its list */
-						if (blk->bk_next) {
-							blk->bk_next->bk_prev = blk->bk_prev;
-						}
-						if (blk->bk_prev) {
-							blk->bk_prev->bk_next = blk->bk_next;
-						}
-						gc_debug("swept entire block "
-						    "storing objects of size "
-						    "%zu at address %s",
-						    blk->bk_objsz,
-						    gc_cap_str(blk));
-						gc_fill_free_mem(blk);
-					} else {
-						/*
-						 * Make free all those things
-						 * that aren't marked.
-						 */
-						blk->bk_marks = 0;
-						blk->bk_free = ~blk->bk_marks;
-						blk->bk_free &=
-						    ((1ULL << (GC_PAGESZ /
-						    blk->bk_objsz)) - 1ULL);
-						/* Account for the space taken
-						 * up by the block header.
-						 */
-						blk->bk_free &= ~((1ULL <<
-						    hdrbits) - 1ULL);
-						gc_debug("swept some objects "
-						    "of size %zu in block %s",
-						    blk->bk_objsz,
-						    gc_cap_str(blk));
-					}
-				}
+				gc_sweep_small_iter(btbl, &byte, type, addr, j);
 			}
 		}
 		btbl->bt_map[i] = byte;
@@ -510,4 +411,104 @@ gc_resume_sweeping(void)
 	npages = (btbl->bt_slotsz * btbl->bt_nslots) / GC_PAGESZ;
 	for (i = 0; i < npages; i++)
 		btbl->bt_tags[i].tg_v = 0;
+}
+
+void
+gc_sweep_large_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
+    uint8_t type, void *addr, int j, int *freecont)
+{
+
+	if (type == GC_BTBL_CONT && freecont) {
+		/*
+		 * Freeing continuation data.
+		 */
+		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_FREE);
+		gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
+#ifdef GC_COLLECT_STATS
+		gc_state_c->gs_nsweepbytes += btbl->bt_slotsz;
+#endif
+	} else if (type == GC_BTBL_USED) {
+		/*
+		 * Used but not marked; free entire
+		 * block.
+		 */
+		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_FREE);
+		gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
+		/*
+		 * Next iterations will free
+		 * continuation data.
+		 */
+		*freecont = 1;
+#ifdef GC_COLLECT_STATS
+		gc_state_c->gs_nsweep++;
+		gc_state_c->gs_nsweepbytes += btbl->bt_slotsz;
+#endif
+		/*gc_debug("swept entire large "
+		    "block at address %p",
+		    addr);*/
+	} else if (type == GC_BTBL_USED_MARKED) {
+		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_USED);
+		*freecont = 0;
+	} else if (*freecont) {
+		*freecont = 0;
+	}
+}
+
+void
+gc_sweep_small_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
+    uint8_t type, void *addr, int j)
+{
+	_gc_cap struct gc_blk *blk;
+	int hdrbits;
+	uint64_t tmp;
+	int k;
+
+	blk = gc_cheri_ptr(addr, btbl->bt_slotsz);
+	if (type == GC_BTBL_USED) {
+		hdrbits = (GC_BLK_HDRSZ + blk->bk_objsz - 1) / blk->bk_objsz;
+#ifdef GC_COLLECT_STATS
+		/*
+		 *  free  mark  NOR  meaning
+		 *  0     0     1    swept (count)
+		 *  0     1     0    alive (don't count)
+		 *  1     0     0    don't care
+		 *  1     1     0    "impossible"
+		 */
+		tmp = ~(blk->bk_free | blk->bk_marks);
+		tmp &= ((1ULL << (GC_PAGESZ / blk->bk_objsz)) - 1ULL);
+		tmp &= ~((1ULL << hdrbits) - 1ULL);
+		for (k = 0; tmp; tmp >>= 1, k++) {
+			if (tmp & 1) {
+				gc_state_c->gs_nsweep++;
+				gc_state_c->gs_nsweepbytes += blk->bk_objsz;
+				// TODO: implement gc_get_blk_obj gc_fill_free_mem(gc_get_blk_obj(blk, k));
+			}
+		}
+#endif
+		if (!blk->bk_marks) {
+			/* Entire block free. Remove it from its list. */
+			GC_BTBL_SETTYPE(*byte, j, GC_BTBL_FREE);
+			if (blk->bk_next)
+				blk->bk_next->bk_prev = blk->bk_prev;
+			if (blk->bk_prev)
+				blk->bk_prev->bk_next = blk->bk_next;
+			gc_debug("swept entire block "
+			    "storing objects of size "
+			    "%zu at address %s",
+			    blk->bk_objsz,
+			    gc_cap_str(blk));
+			gc_fill_free_mem(blk);
+		} else {
+			/* Make free all those things that aren't marked. */
+			blk->bk_free = ~blk->bk_marks;
+			blk->bk_free &= ((1ULL << (GC_PAGESZ / blk->bk_objsz)) - 1ULL);
+			/* Account for the space taken up by the block header. */
+			blk->bk_free &= ~((1ULL << hdrbits) - 1ULL);
+			blk->bk_marks = 0;
+			gc_debug("swept some objects "
+			    "of size %zu in block %s",
+			    blk->bk_objsz,
+			    gc_cap_str(blk));
+		}
+	}
 }

@@ -20,6 +20,10 @@ enum gc_debug_defines {
 #undef	X
 };
 
+extern int	 gc_debug_indent_level;
+#define	GC_DEBUG_INDENT_STR	"\t>>> "
+
+int		 gc_debug_indent(int incr);
 void		 gc_log(int _severity, const char *_file, int _line,
 		    const char *_format, ...);
 const char	*gc_log_severity_str(int _severity);
@@ -62,5 +66,16 @@ void		 gc_fill(_gc_cap void * _obj, uint32_t _magic);
   (n) >= 1024 ? (n) / 1024 :						\
   (n)									\
 )
+
+/*
+ * Use this to print VM entries.
+ */
+#define GC_DEBUG_VE_FMT						\
+		"0x%llx-0x%llx: p=%s sz=%3llu%c t=0x%x"
+#define GC_DEBUG_VE_PRI(ve)					\
+		    (ve)->ve_start, (ve)->ve_end,		\
+		    gc_ve_prot_str((ve)->ve_prot),		\
+		    SZFORMAT((ve)->ve_end - (ve)->ve_start),	\
+		    (ve)->ve_type
 
 #endif /* !_GC_DEBUG_H_ */

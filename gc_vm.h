@@ -37,7 +37,11 @@ struct gc_vm_tbl {
 int	gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *_vt);
 int	gc_vm_tbl_alloc(_gc_cap struct gc_vm_tbl *_vt, size_t _sz);
 _gc_cap struct gc_vm_ent	*gc_vm_tbl_find_btbl(
-				    _gc_cap struct gc_vm_tbl *vt,
-				    _gc_cap struct gc_btbl *bt);
+				    _gc_cap struct gc_vm_tbl *_vt,
+				    _gc_cap struct gc_btbl *_bt);
+
+_gc_cap struct gc_vm_ent	*gc_vm_tbl_find(
+				    _gc_cap struct gc_vm_tbl *_vt,
+				    uint64_t _addr);
 
 #endif /* !_GC_VM_H_ */
