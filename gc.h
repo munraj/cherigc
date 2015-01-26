@@ -307,12 +307,12 @@ int		 gc_alloc_free_blk(_gc_cap struct gc_btbl *_btbl,
 		    _gc_cap struct gc_blk **_out_blk, int _type);
 /*
  * Searches the block table to find the requested number of free blocks. If the
- * requested number are found, they are allocated (set to type _type) and the
- * function returns 0. Otherwise, the block table is left unmodified, and the
+ * requested number are found, they are allocated and the function
+ * returns 0. Otherwise, the block table is left unmodified, and the
  * function returns 1.
  */
 int		 gc_alloc_free_blks(_gc_cap struct gc_btbl *_btbl,
-		    _gc_cap struct gc_blk **_out_blk, int _type, int _len);
+		    _gc_cap struct gc_blk **_out_blk, int _len);
 const char	*binstr(uint8_t _b);
 /*
  * Sets the contents of the map of the block table to the given

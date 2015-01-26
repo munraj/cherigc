@@ -7,7 +7,7 @@
 
 int	gc_debug_indent_level;
 
-int
+void
 gc_debug_indent(int incr)
 {
 

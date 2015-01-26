@@ -417,27 +417,24 @@ void
 gc_sweep_large_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
     uint8_t type, void *addr, int j, int *freecont)
 {
+	_gc_cap void *p;
 
-	if (type == GC_BTBL_CONT && freecont) {
+	p = gc_cheri_ptr(addr, btbl->bt_slotsz);
+
+	if (type == GC_BTBL_CONT && *freecont) {
 		/*
 		 * Freeing continuation data.
 		 */
 		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_FREE);
-		gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
+		gc_fill_free_mem(p);
 #ifdef GC_COLLECT_STATS
 		gc_state_c->gs_nsweepbytes += btbl->bt_slotsz;
 #endif
 	} else if (type == GC_BTBL_USED) {
-		/*
-		 * Used but not marked; free entire
-		 * block.
-		 */
+		/* Used but not marked; free entire block. */
 		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_FREE);
-		gc_fill_free_mem(gc_cheri_ptr(addr, btbl->bt_slotsz));
-		/*
-		 * Next iterations will free
-		 * continuation data.
-		 */
+		gc_fill_free_mem(p);
+		/* Next iterations will free continuation data. */
 		*freecont = 1;
 #ifdef GC_COLLECT_STATS
 		gc_state_c->gs_nsweep++;
@@ -447,6 +444,10 @@ gc_sweep_large_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
 		    "block at address %p",
 		    addr);*/
 	} else if (type == GC_BTBL_USED_MARKED) {
+		/*
+		 * Used and marked; keep block and following
+		 * continuation data.
+		 */
 		GC_BTBL_SETTYPE(*byte, j, GC_BTBL_USED);
 		*freecont = 0;
 	} else if (*freecont) {

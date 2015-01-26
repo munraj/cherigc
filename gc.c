@@ -213,7 +213,7 @@ gc_alloc_free_blk(_gc_cap struct gc_btbl *btbl,
 
 int
 gc_alloc_free_blks(_gc_cap struct gc_btbl *btbl,
-    _gc_cap struct gc_blk **out_blk, int type, int len)
+    _gc_cap struct gc_blk **out_blk, int len)
 {
 	int i, j, idx, fi, fj, fidx, nblk;
 	uint8_t byte;
@@ -241,8 +241,13 @@ gc_alloc_free_blks(_gc_cap struct gc_btbl *btbl,
 						 * Go back and set all blocks as
 						 * allocated.
 						 */
-						gc_btbl_set_map(btbl, fidx, idx,
-						    type);
+						if (idx > fidx) 
+							gc_btbl_set_map(btbl,
+							    fidx + 1, idx,
+							    GC_BTBL_CONT);
+						gc_btbl_set_map(btbl,
+						    fidx, fidx,
+						    GC_BTBL_USED);
 						return (0);
 					}
 				}
@@ -520,7 +525,7 @@ retry:
 			/* Out of memory, TODO: collect or search the map. */
 			gc_debug("couldn't bump the pointer; searching for free blocks");
 			error = gc_alloc_free_blks(&gc_state_c->gs_btbl_big,
-			    &blk, GC_BTBL_USED, roundsz);
+			    &blk, roundsz);
 			if (error != 0) {
 				if (collected) {
 					gc_error("out of memory");
@@ -532,7 +537,7 @@ retry:
 					goto retry;
 				}
 			}
-			gc_debug("found free blocks starting at %s\n", gc_cap_str(blk));
+			gc_debug("found free blocks starting at %s", gc_cap_str(blk));
 			ptr = blk;
 		} else {
 			off = gc_cheri_getoffset(
@@ -542,10 +547,9 @@ retry:
 			    off);
 			gc_state_c->gs_btbl_big.bt_base += roundsz;
 			/* Set relevant bits as unfree in table. */
-			gc_debug("set map: %d\n", indx);
 			gc_btbl_set_map(&gc_state_c->gs_btbl_big, indx, indx,
 			    GC_BTBL_USED);
-			if (roundsz / GC_BIGSZ > 1)
+			if (roundsz > GC_BIGSZ)
 				gc_btbl_set_map(&gc_state_c->gs_btbl_big,
 				    indx + 1, indx + roundsz / GC_BIGSZ - 1,
 				    GC_BTBL_CONT);
@@ -735,6 +739,7 @@ gc_get_or_update_tags(_gc_cap struct gc_btbl *btbl, size_t page_indx)
 		/* Construct page capability. */
 		page = gc_cheri_incbase(btbl->bt_base, page_indx * GC_PAGESZ);
 		page = gc_cheri_setlen(page, GC_PAGESZ);
+		page = gc_cheri_setoffset(page, 0);
 		btbl->bt_tags[page_indx] = gc_get_page_tags(page);
 	}
 

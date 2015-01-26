@@ -23,7 +23,7 @@ enum gc_debug_defines {
 extern int	 gc_debug_indent_level;
 #define	GC_DEBUG_INDENT_STR	"\t>>> "
 
-int		 gc_debug_indent(int incr);
+void		 gc_debug_indent(int incr);
 void		 gc_log(int _severity, const char *_file, int _line,
 		    const char *_format, ...);
 const char	*gc_log_severity_str(int _severity);

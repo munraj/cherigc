@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -16,6 +17,10 @@ struct gc_cmd	gc_cmds[] = {
 	 .c_desc = "Display statistics"},
 	{.c_cmd = (const char *[]){"map", "m", NULL}, .c_fn = &gc_cmd_map,
 	 .c_desc = "Display btbl map"},
+	{.c_cmd = (const char *[]){"info", "i", NULL}, .c_fn = &gc_cmd_info,
+	 .c_desc = "Display information for page/object"},
+	{.c_cmd = (const char *[]){"uptags", "ut", NULL}, .c_fn = &gc_cmd_uptags,
+	 .c_desc = "Update tags for page/object"},
 	{.c_cmd = (const char *[]){"quit", "q", NULL}, .c_fn = &gc_cmd_quit,
 	 .c_desc = "Quit"},
 	{.c_cmd = NULL},
@@ -86,6 +91,117 @@ gc_cmd_map(struct gc_cmd *cmd, char **arg)
 }
 
 int
+gc_cmd_info(struct gc_cmd *cmd, char **arg)
+{
+	uint64_t addr;
+	int rc;
+	_gc_cap void *raw_obj;
+	_gc_cap void *obj;
+	_gc_cap struct gc_btbl *bt;
+	size_t bt_idx;
+	_gc_cap struct gc_blk *bk;
+	size_t bk_idx;
+	size_t pg_idx;
+
+	if (arg[1] == NULL)
+	{
+		printf("info: <addr>\n");
+		return (0);
+	}
+
+	addr = strtoull(arg[1], NULL, 0);
+
+	printf("Retrieving information for address 0x%" PRIx64 "\n", addr);
+
+	raw_obj = gc_cheri_ptr((void *)GC_ALIGN(addr), 0);
+
+	rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
+	    gc_cap_addr(&bt), gc_cheri_ptr(&bt_idx, sizeof(bt_idx)),
+	    gc_cap_addr(&bk), gc_cheri_ptr(&bk_idx, sizeof(bk_idx)));
+
+	if (rc == GC_OBJ_UNMANAGED)
+	{
+		printf("Object is unmanaged.\n");
+		return (0);
+	}
+	else if (rc == GC_OBJ_USED)
+		printf("Object is allocated.\n");
+	else if (rc == GC_OBJ_FREE)
+		printf("Object is not allocated.\n");
+
+	printf("Returned object: %s\n", gc_cap_str(obj));
+	printf("Block table: %s, ", gc_cap_str(bt));
+	printf("base: %s, slot size %zu, index: %zu\n", gc_cap_str(bt->bt_base), bt->bt_slotsz, bt_idx);
+	if (bt->bt_flags & GC_BTBL_FLAG_SMALL)
+		printf("Block: %s, index: %zu\n", gc_cap_str(bk), bk_idx);
+
+	pg_idx = GC_SLOT_IDX_TO_PAGE_IDX(bt, bt_idx);
+	printf("Stored tags: hi=0x%" PRIx64 ", lo=0x%" PRIx64 ", v=%d\n",
+		bt->bt_tags[pg_idx].tg_hi,
+		bt->bt_tags[pg_idx].tg_lo,
+		bt->bt_tags[pg_idx].tg_v);
+
+	return (0);
+}
+
+int
+gc_cmd_uptags(struct gc_cmd *cmd, char **arg)
+{
+	uint64_t addr;
+	int rc;
+	_gc_cap void *raw_obj;
+	_gc_cap void *obj;
+	_gc_cap struct gc_btbl *bt;
+	size_t bt_idx;
+	size_t pg_idx;
+
+	if (arg[1] == NULL)
+	{
+		printf("uptags: <addr>\n");
+		return (0);
+	}
+
+	addr = strtoull(arg[1], NULL, 0);
+
+	printf("Updating tags for address 0x%" PRIx64 "\n", addr);
+
+	raw_obj = gc_cheri_ptr((void *)GC_ALIGN(addr), 0);
+
+	rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
+	    gc_cap_addr(&bt), gc_cheri_ptr(&bt_idx, sizeof(bt_idx)),
+	    NULL, NULL);
+
+	if (rc == GC_OBJ_UNMANAGED)
+	{
+		printf("Error: object is unmanaged.\n");
+		return (0);
+	}
+	else if (rc == GC_OBJ_USED)
+		printf("Object is allocated.\n");
+	else if (rc == GC_OBJ_FREE)
+	{
+		printf("Error: object is not allocated.\n");
+		return (0);
+	}
+
+	printf("Returned object: %s\n", gc_cap_str(obj));
+	printf("Block table: %s, index: %zu\n", gc_cap_str(bt), bt_idx);
+	pg_idx = GC_SLOT_IDX_TO_PAGE_IDX(bt, bt_idx);
+	printf("Old tags: hi=0x%" PRIx64 ", lo=0x%" PRIx64 ", v=%d\n",
+		bt->bt_tags[pg_idx].tg_hi,
+		bt->bt_tags[pg_idx].tg_lo,
+		bt->bt_tags[pg_idx].tg_v);
+	printf("Updating...\n");
+	gc_get_or_update_tags(bt, pg_idx);
+	printf("New tags: hi=0x%" PRIx64 ", lo=0x%" PRIx64 ", v=%d\n",
+		bt->bt_tags[pg_idx].tg_hi,
+		bt->bt_tags[pg_idx].tg_lo,
+		bt->bt_tags[pg_idx].tg_v);
+
+	return (0);
+}
+
+int
 gc_cmd_quit(struct gc_cmd *cmd, char **arg)
 {
 
@@ -136,7 +252,7 @@ gc_cmdrn(char **arg)
 	for (cmd = gc_cmds; cmd->c_cmd != NULL; cmd++) {
 		for (namep = cmd->c_cmd; *namep != NULL; namep++) {
 			if (strcmp(*namep, arg[0]) == 0) {
-				rc = cmd->c_fn(cmd, arg);
+				rc = (*cmd->c_fn)(cmd, arg);
 				goto done;
 			}
 		}

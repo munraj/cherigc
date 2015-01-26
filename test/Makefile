@@ -1,6 +1,7 @@
 .include "../cheridefs.mk"
 LD=$(CC)
 LDFLAGS=
+CFLAGS+=-g
 CFLAGS+=-Wall -I.. -DTF_FORK
 OBJS=test.o framework.o
 

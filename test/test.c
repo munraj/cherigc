@@ -34,8 +34,8 @@ struct tf_test	tests[] = {
 #ifdef GC_USE_LIBPROCSTAT
 	/*{.t_fn = test_procstat, .t_desc = "libprocstat", .t_dofork = 0},*/
 #endif
-	//{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
-	{.t_fn = test_store, .t_desc = "ptr store", .t_dofork = 0},
+	{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
+	//{.t_fn = test_store, .t_desc = "ptr store", .t_dofork = 0},
 	/*{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 0},*/
 	{.t_fn = NULL},
 };
@@ -171,15 +171,16 @@ test_ll(struct tf_test *thiz)
 	_gc_cap struct node *hd, *p, *t;
 	_gc_cap uint32_t *junk;
 	size_t nsz, junksz, tmp;
-	int nmax, i, j;
+	int nmax, i, j, junkn;
 	uint32_t junkfill;
 	uint8_t h;
 
 	/* Configurable */
 	nmax = 10;
-	nsz = 200;
-	junksz = 10000;
+	nsz = 2001;
+	junksz = 2000;
 	junkfill = 0x0BADDEAD;
+	junkn = 3;
 
 	if (nsz < sizeof(struct node))
 		nsz = sizeof(struct node);
@@ -191,10 +192,12 @@ test_ll(struct tf_test *thiz)
 	np = gc_cheri_ptr(&hd, sizeof(hd));
 	p = NULL;
 	for (i = 0; i < nmax; i++) {
-		ALLOCATE_JUNK;
+		for (j = 0; j < junkn; j++)
+			ALLOCATE_JUNK;
 		*np = gc_malloc(nsz);
-		ALLOCATE_JUNK;
 		t = *np;
+		thiz->t_assert(t != NULL);
+		ALLOCATE_JUNK;
 		thiz->t_assert(t != NULL);
 		thiz->t_assert(gc_cheri_getlen(t) >= nsz);
 		t->p = p;
@@ -214,14 +217,15 @@ test_ll(struct tf_test *thiz)
 	for (i = 0; i < nmax; i++) {
 		thiz->t_pf("checking linked list node %d\n", i);
 		thiz->t_assert(t != NULL);
-		thiz->t_pf("actual prev: %p, stored prev: %p, stored next: %p\n",
-		   p, t->p, t->n);
+		thiz->t_pf("current: %p, actual prev: %p, stored prev: %p, stored next: %p\n",
+		   (void *)t, (void *)p, (void *)t->p, (void *)t->n);
 		thiz->t_assert(t->p == p);
 		for (j = 0; j < nsz - sizeof(struct node); j++) {
 			h = LLHASH(i, j,
 			    (int)(uintptr_t)t, (int)(uintptr_t)t->p);
-			thiz->t_pf("expected: 0x%x, actual: 0x%x\n", h, t->v[j]);
-			//thiz->t_assert(t->v[j] == h);
+			if (t->v[j] != h)
+				thiz->t_pf("position %d: stored hash: 0x%x; actual hash: 0x%x\n", j, t->v[j], h);
+			thiz->t_assert(t->v[j] == h);
 		}
 		p = t;
 		t = t->n;
@@ -236,8 +240,41 @@ test_store(struct tf_test *thiz)
 	_gc_cap struct node *n;
 	size_t i;
 
-	n = gc_malloc(254);
-	n->n = 100;
+	n = gc_malloc(2004);
+	n->p = gc_cheri_ptr(0x5678, 0x7890);
+	for (i=0; i<2004-sizeof(*n); i++)
+		n->v[i] = 99;
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	n->n = gc_malloc(2006);
+	for (i=0; i<2004-sizeof(*n); i++)
+		n->n->v[i] = 22;
+	printf("n: %s\n", gc_cap_str(n));
+	printf("n->n: %s\n", gc_cap_str(n->n));
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
+	gc_malloc(2005);
 	//printf("addr: 0x%llx\n", &n); /* force n to stack */
 
 	/*for (i = 0; i < 1000; i++)
@@ -246,12 +283,17 @@ test_store(struct tf_test *thiz)
 		n = n->n;
 	}*/
 	gc_extern_collect();
-	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
+	printf("n: %s\n", gc_cap_str(n));
 	gc_extern_collect();
-	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
+	printf("n: %s\n", gc_cap_str(n));
 	gc_extern_collect();
 
-	printf("n: %s\n", gc_cap_str(n)); /* force n to stack */
-	printf("n->n: %s\n", gc_cap_str(n->n)); /* force n to stack */
+	printf("n: %s\n", gc_cap_str(n));
+	printf("n->n: %s\n", gc_cap_str(n->n));
+	printf("n->p: %s\n", gc_cap_str(n->p));
+	for (i=0; i<2004-sizeof(*n); i++)
+		if (n->v[i] != 99) printf("n->v[%zu] is not 99!\n", i);
+	for (i=0; i<2004-sizeof(*n); i++)
+		if (n->n->v[i] != 22) printf("n->n->v[%zu] = 0x%x is not 22!\n", i, n->n->v[i]);
 	return (TF_SUCC);
 }
