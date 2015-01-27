@@ -16,6 +16,105 @@ _gc_cap void		*gc_malloc_entry(size_t sz);
 
 _gc_cap struct gc_state	*gc_state_c;
 
+int
+gc_ty_is_cont(uint8_t ty)
+{
+
+	return (!gc_ty_is_unmanaged(ty) &&
+	    (ty & GC_BTBL_TYPE_MASK) == GC_BTBL_CONT);
+}
+
+uint8_t
+gc_ty_set_cont(uint8_t ty)
+{
+
+	ty &= ~GC_BTBL_TYPE_MASK;
+	ty |= GC_BTBL_CONT;
+	return (ty);
+}
+
+
+int
+gc_ty_is_free(uint8_t ty)
+{
+
+	return (!gc_ty_is_unmanaged(ty) &&
+	    (ty & GC_BTBL_TYPE_MASK) == GC_BTBL_FREE);
+}
+
+uint8_t
+gc_ty_set_free(uint8_t ty)
+{
+
+	ty &= ~GC_BTBL_TYPE_MASK;
+	ty |= GC_BTBL_FREE;
+	return (ty);
+}
+
+int
+gc_ty_is_used(uint8_t ty)
+{
+
+	return (!gc_ty_is_unmanaged(ty) &&
+	    (ty & GC_BTBL_TYPE_MASK) == GC_BTBL_USED);
+}
+
+uint8_t
+gc_ty_set_used(uint8_t ty)
+{
+
+	ty &= ~GC_BTBL_TYPE_MASK;
+	ty |= GC_BTBL_USED;
+	return (ty);
+}
+
+int
+gc_ty_is_marked(uint8_t ty)
+{
+
+	return (!gc_ty_is_unmanaged(ty) &&
+	    (ty & GC_BTBL_TYPE_MASK) == GC_BTBL_USED_MARKED);
+}
+
+uint8_t
+gc_ty_set_marked(uint8_t ty)
+{
+
+	ty &= ~GC_BTBL_TYPE_MASK;
+	ty |= GC_BTBL_USED_MARKED;
+	return (ty);
+}
+
+int
+gc_ty_is_revoked(uint8_t ty)
+{
+
+	return (!gc_ty_is_unmanaged(ty) &&
+	    (ty & GC_BTBL_REVOKED_MASK));
+}
+
+uint8_t
+gc_ty_set_revoked(uint8_t ty)
+{
+
+	ty |= GC_BTBL_REVOKED_MASK;
+	return (ty);
+}
+
+int
+gc_ty_is_unmanaged(uint8_t ty)
+{
+
+	return (ty == GC_BTBL_UNMANAGED);
+}
+
+uint8_t
+gc_ty_set_unmanaged(uint8_t ty)
+{
+
+	return (GC_BTBL_UNMANAGED);
+}
+
 size_t
 gc_round_pow2(size_t x)
 {
@@ -65,14 +164,14 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	size_t tagsz;
 	size_t npages;
 
-	/* Round up nslots to next multiple of 4. */
-	nslots = (nslots + (size_t)3) & ~(size_t)3;
-	sz = nslots / 4 + sizeof(struct gc_btbl);
+	/* Round up nslots to next multiple of 2. */
+	nslots = (nslots + (size_t)1) & ~(size_t)1;
+	sz = nslots / 2 + sizeof(struct gc_btbl);
 
 	memset((void *)btbl, 0, sizeof(struct gc_btbl));
 
 	memsz = slotsz * nslots;
-	mapsz = nslots / 4;
+	mapsz = nslots / 2;
 	npages = memsz / GC_PAGESZ;
 	tagsz = npages * sizeof(*btbl->bt_tags);
 
@@ -124,11 +223,11 @@ gc_init(void)
 	gc_state_c->gs_mark_state = GC_MS_NONE;
 
 	/* 4096*16384 => 64MB heap. */
-	/* XXX: 40kB heap */
+	/* XXX: 4096*10 => 40kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_small,
 	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL);
 	/* 1024*16384 => 16MB heap. */
-	/* XXX: 100kB heap */
+	/* XXX: 1024*100 => 100kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_big,
 	    GC_BIGSZ, 100/*16384*/, 0);
 
@@ -193,9 +292,9 @@ gc_alloc_free_blk(_gc_cap struct gc_btbl *btbl,
 	int i, j, idx;
 	uint8_t byte;
 
-	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+	for (i = 0; i < btbl->bt_nslots / 2; i++) {
 		byte = btbl->bt_map[i];
-		for (j = 0; j < 4; j++) {
+		for (j = 0; j < 2; j++) {
 			idx = GC_BTBL_MKINDX(i, j);
 			if (GC_BTBL_GETTYPE(byte, j) == GC_BTBL_FREE) {
 				*out_blk = gc_cheri_incbase(btbl->bt_base,
@@ -220,9 +319,9 @@ gc_alloc_free_blks(_gc_cap struct gc_btbl *btbl,
 
 	nblk = (len + btbl->bt_slotsz - 1) / btbl->bt_slotsz;
 	fi = -1;
-	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+	for (i = 0; i < btbl->bt_nslots / 2; i++) {
 		byte = btbl->bt_map[i];
-		for (j = 0; j < 4; j++) {
+		for (j = 0; j < 2; j++) {
 			idx = GC_BTBL_MKINDX(i, j);
 			if (GC_BTBL_GETTYPE(byte, j) == GC_BTBL_FREE) {
 				if (fi == -1) {
@@ -280,26 +379,26 @@ binstr(uint8_t b)
 void
 gc_btbl_set_map(_gc_cap struct gc_btbl *btbl, int start, int end, uint8_t value)
 {
-	uint8_t value4, mask;
+	uint8_t value2, mask;
 	int i;
 
-	value4 = (value << 6) | (value << 4) | (value << 2) | value;
-	if (start / 4 == end / 4) {
+	value2 = (value << 4) | value;
+	if (start / 2 == end / 2) {
 		/* Start/end at same byte; just set the required bits. */
-		mask = (uint8_t)0xFF >> ((start % 4) * 2);
-		mask ^= (uint8_t)0xFF >> (((end % 4) + 1) * 2);
-		i = start / 4;
-		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value4 & mask);
+		mask = (uint8_t)0xFF >> ((start % 2) * 4);
+		mask ^= (uint8_t)0xFF >> (((end % 2) + 1) * 4);
+		i = start / 2;
+		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value2 & mask);
 	} else {
-		mask = (uint8_t)0xFF >> ((start % 4) * 2);
-		i = start / 4;
-		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value4 & mask);
+		mask = (uint8_t)0xFF >> ((start % 2) * 4);
+		i = start / 2;
+		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value2 & mask);
 		/* Deal with bytes in between. */
-		for (i = start / 4 + 1; i <= end / 4 - 1; i++)
-			btbl->bt_map[i] = value4;
-		mask = ~((uint8_t)0xFF >> (((end % 4) + 1) * 2));
-		i = end / 4;
-		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value4 & mask);
+		for (i = start / 2 + 1; i <= end / 2 - 1; i++)
+			btbl->bt_map[i] = value2;
+		mask = ~((uint8_t)0xFF >> (((end % 2) + 1) * 4));
+		i = end / 2;
+		btbl->bt_map[i] = (btbl->bt_map[i] & ~mask) | (value2 & mask);
 	}
 }
 
@@ -316,54 +415,52 @@ gc_set_mark(_gc_cap void *ptr)
 
 	/* Try small region. */
 	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, NULL, ptr);
+	type = rc;
 	gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc, indx);
-	if (rc == GC_OBJ_FREE)
-		return (GC_OBJ_FREE);
-	else if (rc == GC_OBJ_USED) {
+	if (gc_ty_is_unmanaged(rc)) {
+		/* Try big region. */
+		rc = gc_get_btbl_indx(&gc_state_c->gs_btbl_big, &indx, &type,
+		    ptr);
+		gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
+		if (rc != 0)
+			return (GC_BTBL_UNMANAGED);
+		else if (gc_ty_is_revoked(type))
+			/* do something */;
+		else if (gc_ty_is_free(type))
+			return (type);
+		else if (gc_ty_is_marked(type))
+			return (type);
+		else if (gc_ty_is_used(type))
+		{
+			byte = gc_state_c->gs_btbl_big.bt_map[GC_BTBL_MAPINDX(indx)];
+			GC_BTBL_SETTYPE(byte, indx, gc_ty_set_marked(type));
+			gc_state_c->gs_btbl_big.bt_map[GC_BTBL_MAPINDX(indx)] = byte;
+#ifdef GC_COLLECT_STATS
+			gc_state_c->gs_nmark++;
+			gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)), NULL, NULL, NULL, NULL);
+			gc_state_c->gs_nmarkbytes += gc_cheri_getlen(ptr);
+#endif
+			gc_debug("set mark for big object at index %zu", indx);
+			return (type);
+		}
+		/* NOTREACHABLE; fall through */
+	} else if (gc_ty_is_free(type)) {
+		/* Entire block is free. */
+		return (type);
+	} else if (gc_ty_is_used(type)) {
+		/* Construction of emulated btbl type. */
 		if (((blk->bk_free >> indx) & 1) != 0)
-			return (GC_OBJ_FREE);
+			return (gc_ty_set_free(type)); /* free; don't mark */
 		if (((blk->bk_marks >> indx) & 1) != 0)
-			return (GC_OBJ_ALREADY_MARKED);
+			return (gc_ty_set_marked(type)); /* already marked */
 		blk->bk_marks |= 1ULL << indx;
 #ifdef GC_COLLECT_STATS
 		gc_state_c->gs_nmark++;
 		gc_state_c->gs_nmarkbytes += blk->bk_objsz;
 #endif
 		gc_debug("set mark for small object at index %zu", indx);
-		return (GC_OBJ_USED);
-	} else if (rc == GC_OBJ_UNMANAGED) {
-		/* Try big region. */
-		rc = gc_get_btbl_indx(&gc_state_c->gs_btbl_big, &indx, &type,
-		    ptr);
-		gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
-		if (rc)
-			return (GC_OBJ_UNMANAGED);
-		if (type == GC_BTBL_FREE)
-			return (GC_OBJ_FREE);
-		else if (type == GC_BTBL_USED_MARKED)
-			return (GC_OBJ_ALREADY_MARKED);
-		else if (type == GC_BTBL_USED)
-			byte = gc_state_c->gs_btbl_big.bt_map[indx / 4];
-		else {
-			/* NOTREACHABLE */
-			GC_NOTREACHABLE_ERROR();
-			return (-1);
-		}
-		GC_BTBL_SETTYPE(byte, indx, GC_BTBL_USED_MARKED);
-		gc_state_c->gs_btbl_big.bt_map[indx / 4] = byte;
-#ifdef GC_COLLECT_STATS
-		gc_state_c->gs_nmark++;
-		gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)), NULL, NULL, NULL, NULL);
-		gc_state_c->gs_nmarkbytes += gc_cheri_getlen(ptr);
-#endif
-		gc_debug("set mark for big object at index %zu", indx);
-		return (GC_OBJ_USED);
-	} else {
-		/* NOTREACHABLE */
-		GC_NOTREACHABLE_ERROR();
-		return (-1);
+		return (type);
 	}
-	/* NOTREACHABLE */
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
 }
@@ -374,18 +471,24 @@ gc_get_btbl_indx(_gc_cap struct gc_btbl *btbl, size_t *out_indx,
 {
 	size_t logslotsz;
 	uint8_t byte, type;
+	uintptr_t iptr;
+	uintptr_t ibase;
+	size_t len;
 
-	if ((uintptr_t)ptr < (uintptr_t)gc_cheri_getbase(btbl->bt_base) ||
-	    (uintptr_t)ptr >= (uintptr_t)gc_cheri_getbase(btbl->bt_base) +
-	    gc_cheri_getlen(btbl->bt_base))
+	iptr = (uintptr_t)ptr;
+	ibase = (uintptr_t)gc_cheri_getbase(btbl->bt_base);
+	len = gc_cheri_getlen(btbl->bt_base);
+
+	if (iptr < ibase || iptr >= ibase + len)
 		return (1);
+
 	logslotsz = GC_LOG2(btbl->bt_slotsz);
-	*out_indx = ((uintptr_t)ptr -
-	    (uintptr_t)gc_cheri_getbase(btbl->bt_base)) >> logslotsz;
+	*out_indx = (iptr - ibase) >> logslotsz;
+
 	for (;;) {
-		byte = btbl->bt_map[*out_indx / 4];
+		byte = btbl->bt_map[GC_BTBL_MAPINDX(*out_indx)];
 		type = GC_BTBL_GETTYPE(byte, *out_indx);
-		if (type == GC_BTBL_CONT) {
+		if (gc_ty_is_cont(type)) {
 			/* Block is continuation data; go to previous block. */
 			if (*out_indx == 0)
 				return (1);
@@ -408,10 +511,11 @@ gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
 	if (!(btbl->bt_flags & GC_BTBL_FLAG_SMALL))
 		return (GC_INVALID_BTBL);
 	if (gc_get_btbl_indx(btbl, &indx, &type, ptr) != 0)
-		return (GC_OBJ_UNMANAGED);
+		return (GC_BTBL_UNMANAGED);
 	if (out_big_indx != NULL)
 		*out_big_indx = indx;
-	if (type == GC_BTBL_USED) {
+
+	if (gc_ty_is_used(type)) {
 		/* This block contains block header. */
 		logslotsz = GC_LOG2(btbl->bt_slotsz);
 		mask = ((uintptr_t)1 << logslotsz) - (uintptr_t)1;
@@ -419,13 +523,12 @@ gc_get_block(_gc_cap struct gc_btbl *btbl, _gc_cap struct gc_blk **out_blk,
 		    btbl->bt_slotsz);
 		*out_sml_indx = ((uintptr_t)ptr - (uintptr_t)*out_blk) /
 		    (*out_blk)->bk_objsz;
-		return (GC_OBJ_USED);
-	} else if (type == GC_BTBL_FREE) {
+		return (type);
+	} else if (gc_ty_is_free(type)) {
 		/* Block doesn't exist. */
-		return (GC_OBJ_FREE);
-	} else {
-		/* NOTREACHABLE */
+		return (type);
 	}
+
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
 }
@@ -434,11 +537,9 @@ int
 gc_follow_free(_gc_cap struct gc_blk **blk)
 {
 
-	for (; *blk != NULL; *blk = (*blk)->bk_next) {
-		gc_debug("*blk is %s\n", gc_cap_str(*blk));
-		if ((*blk)->bk_free)
+	for (; *blk != NULL; *blk = (*blk)->bk_next)
+		if ((*blk)->bk_free != (uint64_t)0) /* at least one bit free */
 			return (0);
-	}
 	return (1);
 }
 
@@ -448,9 +549,8 @@ gc_ins_blk(_gc_cap struct gc_blk *blk, _gc_cap struct gc_blk **list)
 
 	blk->bk_prev = NULL;
 	blk->bk_next = *list;
-	if (*list != NULL) {
+	if (*list != NULL)
 		(*list)->bk_prev = blk;
-	}
 	*list = blk;
 }
 
@@ -498,6 +598,7 @@ _gc_cap void *
 gc_malloc_entry(size_t sz)
 {
 	_gc_cap struct gc_blk *blk;
+	_gc_cap void *hp;
 	_gc_cap void *ptr;
 	uint64_t off;
 	int error, roundsz, logsz, hdrbits, indx;
@@ -513,15 +614,16 @@ retry:
 	}
 	if (GC_ROUND_POW2(sz) >= GC_BIGSZ) {
 		roundsz = GC_ROUND_BIGSZ(sz);
+#ifdef GC_COLLECT_STATS
 		gc_state_c->gs_ntbigalloc++;
+#endif
 		gc_debug("request %zu is big (rounded %zu)", sz, roundsz);
 		/*
 		 * Allocate directly from the big heap. Try to bump-the-pointer,
 		 * but if this fails, then search the map.
 		 */
-		if (gc_cheri_getoffset(gc_state_c->gs_btbl_big.bt_base) +
-		    roundsz > gc_cheri_getlen(
-		    gc_state_c->gs_btbl_big.bt_base)) {
+		hp = gc_state_c->gs_btbl_big.bt_base;
+		if (gc_cheri_getoffset(hp) + roundsz > gc_cheri_getlen(hp)) {
 			/* Out of memory, TODO: collect or search the map. */
 			gc_debug("couldn't bump the pointer; searching for free blocks");
 			error = gc_alloc_free_blks(&gc_state_c->gs_btbl_big,
@@ -540,11 +642,9 @@ retry:
 			gc_debug("found free blocks starting at %s", gc_cap_str(blk));
 			ptr = blk;
 		} else {
-			off = gc_cheri_getoffset(
-			    gc_state_c->gs_btbl_big.bt_base);
+			off = gc_cheri_getoffset(hp);
 			indx = off / gc_state_c->gs_btbl_big.bt_slotsz;
-			ptr = gc_cheri_incbase(gc_state_c->gs_btbl_big.bt_base,
-			    off);
+			ptr = gc_cheri_incbase(hp, off);
 			gc_state_c->gs_btbl_big.bt_base += roundsz;
 			/* Set relevant bits as unfree in table. */
 			gc_btbl_set_map(&gc_state_c->gs_btbl_big, indx, indx,
@@ -605,7 +705,7 @@ retry:
 		gc_fill_used_mem(ptr, roundsz);
 	}
 #ifdef GC_COLLECT_STATS
-	if (ptr) {
+	if (ptr != NULL) {
 		gc_state_c->gs_nalloc++;
 		gc_state_c->gs_nallocbytes += roundsz;
 	}
@@ -653,15 +753,17 @@ gc_get_obj(_gc_cap void *ptr,
 {
 	int rc;
 	_gc_cap struct gc_blk *blk;
-	void * base;
+	void *base;
+	_gc_cap struct gc_btbl *bt;
 	size_t indx, big_indx, len, i, j;
-	uint8_t byte, type;
+	uint8_t byte, type, jtype;
 
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 	/* Try small region */
-	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, &big_indx, ptr);
+	bt = &gc_state_c->gs_btbl_small;
+	rc = gc_get_block(bt, &blk, &indx, &big_indx, ptr);
 	if (out_btbl != NULL)
-		*out_btbl = &gc_state_c->gs_btbl_small;
+		*out_btbl = bt;
 	if (out_big_indx != NULL)
 		*out_big_indx = big_indx;
 	if (out_blk != NULL)
@@ -669,21 +771,12 @@ gc_get_obj(_gc_cap void *ptr,
 	if (out_sml_indx != NULL)
 		*out_sml_indx = indx;
 
-	if (rc == GC_OBJ_FREE)
-		return (GC_OBJ_FREE);
-	if (rc == GC_OBJ_USED) {
-		if (((blk->bk_free >> indx) & 1) != 0)
-			return (GC_OBJ_FREE);
-		base = (char*)blk + indx * blk->bk_objsz;
-		len = blk->bk_objsz;
-		*out_ptr = gc_cheri_ptr(base, len);
-		return (GC_OBJ_USED);
-	} else if (rc == GC_OBJ_UNMANAGED) {
+	if (gc_ty_is_unmanaged(rc)) {
 		/* Try big region. */
-		rc = gc_get_btbl_indx(&gc_state_c->gs_btbl_big, &indx, &type,
-		    ptr);
+		bt = &gc_state_c->gs_btbl_big;
+		rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
 		if (out_btbl != NULL)
-			*out_btbl = &gc_state_c->gs_btbl_big;
+			*out_btbl = bt;
 		if (out_big_indx != NULL)
 			*out_big_indx = indx;
 		if (out_blk != NULL)
@@ -691,40 +784,46 @@ gc_get_obj(_gc_cap void *ptr,
 		if (out_sml_indx != NULL)
 			*out_sml_indx = 0;
 		if (rc != 0)
-			return (GC_OBJ_UNMANAGED);
-		base = (char*)gc_cheri_getbase(
-		    gc_state_c->gs_btbl_big.bt_base) + indx * GC_BIGSZ;
+			return (GC_BTBL_UNMANAGED);
+		base = (char *)gc_cheri_getbase(bt->bt_base) + indx * GC_BIGSZ;
 		len = GC_BIGSZ;
-		if (type == GC_BTBL_FREE) {
+		if (gc_ty_is_free(type)) {
 			*out_ptr = gc_cheri_ptr(base, len);
-			return (GC_OBJ_FREE);
-		} else if (type == GC_BTBL_USED ||
-		    type == GC_BTBL_USED_MARKED) {
+			return (type);
+		} else if (gc_ty_is_used(type) || gc_ty_is_marked(type)) {
 			/* Determine length of big object. */
 			indx++;
-			for (i = indx / 4;
-			    i < gc_state_c->gs_btbl_big.bt_nslots / 4; i++) {
-				byte = gc_state_c->gs_btbl_big.bt_map[i];
-				for (j = (i == indx / 4) ? indx % 4 : 0;
-				    j < 4; j++) {
-					type = GC_BTBL_GETTYPE(byte, j);
-					if (type == GC_BTBL_CONT)
+			for (i = GC_BTBL_MAPINDX(indx);
+			    i < bt->bt_nslots / 2; i++) {
+				byte = bt->bt_map[i];
+				for (j = (i == GC_BTBL_MAPINDX(indx)) ? indx % 2 : 0;
+				    j < 2; j++) {
+					jtype = GC_BTBL_GETTYPE(byte, j);
+					if (gc_ty_is_cont(jtype))
 						len += GC_BIGSZ;
 					else {
 						*out_ptr =
 						    gc_cheri_ptr(base, len);
-						return (GC_OBJ_USED);
+						return (type);
 					}
 				}
 			}
 			/* Reached end of table. */
 			*out_ptr = gc_cheri_ptr(base, len);
-			return GC_OBJ_USED;
-		} else {
-			/* NOTREACHABLE */
+			return (type);
 		}
-	} else {
-		/* NOTREACHABLE */
+		/* NOTREACHABLE; fall through */
+	} else if (gc_ty_is_free(rc)) {
+		return (rc); 
+	} else if (gc_ty_is_used(rc)) {
+		if (((blk->bk_free >> indx) & 1) != 0)
+			return (gc_ty_set_free(rc));
+		if (((blk->bk_marks >> indx) & 1) != 0)
+			return (gc_ty_set_marked(rc));
+		base = (char *)blk + indx * blk->bk_objsz;
+		len = blk->bk_objsz;
+		*out_ptr = gc_cheri_ptr(base, len);
+		return (rc);
 	}
 	GC_NOTREACHABLE_ERROR();
 	return (-1);

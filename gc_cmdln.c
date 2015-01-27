@@ -119,15 +119,19 @@ gc_cmd_info(struct gc_cmd *cmd, char **arg)
 	    gc_cap_addr(&bt), gc_cheri_ptr(&bt_idx, sizeof(bt_idx)),
 	    gc_cap_addr(&bk), gc_cheri_ptr(&bk_idx, sizeof(bk_idx)));
 
-	if (rc == GC_OBJ_UNMANAGED)
-	{
+	if (gc_ty_is_unmanaged(rc)) {
 		printf("Object is unmanaged.\n");
 		return (0);
-	}
-	else if (rc == GC_OBJ_USED)
+	} else if (gc_ty_is_revoked(rc))
+		printf("Object is revoked.\n");
+	else if (gc_ty_is_used(rc))
 		printf("Object is allocated.\n");
-	else if (rc == GC_OBJ_FREE)
+	else if (gc_ty_is_marked(rc))
+		printf("Object is allocated and marked.\n");
+	else if (gc_ty_is_free(rc))
 		printf("Object is not allocated.\n");
+	else
+		printf("Unknown object type.\n");
 
 	printf("Returned object: %s\n", gc_cap_str(obj));
 	printf("Block table: %s, ", gc_cap_str(bt));
@@ -171,15 +175,12 @@ gc_cmd_uptags(struct gc_cmd *cmd, char **arg)
 	    gc_cap_addr(&bt), gc_cheri_ptr(&bt_idx, sizeof(bt_idx)),
 	    NULL, NULL);
 
-	if (rc == GC_OBJ_UNMANAGED)
-	{
+	if (gc_ty_is_unmanaged(rc)) {
 		printf("Error: object is unmanaged.\n");
 		return (0);
-	}
-	else if (rc == GC_OBJ_USED)
-		printf("Object is allocated.\n");
-	else if (rc == GC_OBJ_FREE)
-	{
+	} else if (gc_ty_is_revoked(rc)) {
+		printf("Warning: object is revoked.\n");
+	} else if (gc_ty_is_free(rc)) {
 		printf("Error: object is not allocated.\n");
 		return (0);
 	}

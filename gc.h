@@ -63,18 +63,22 @@ struct gc_blk {
  *
  * flags & GC_BTBL_FLAG_SMALL:
  * The data blocks store small objects.
- * Two-bit entry for each page from the base.
- * 0b00: page free
- * 0b01: contains block header
- * 0b10: continuation data from some other block
- * 0b11: reserved
+ * Four-bit entry for each page from the base.
+ * 0b0000: page free
+ * 0b0001: contains block header
+ * 0b0010: continuation data from some other block
+ * 0b0011 - 0b1110: reserved
+ * 0b1111: object not managed by GC
  *
  * Otherwise the data blocks store large objects.
- * Two-bit entry for each GC_BIGSZ sized object from the base.
- * 0b00: slot free
- * 0b01: slot used, unmarked
- * 0b10: continuation data from previous slot
- * 0b11: slot used, marked
+ * Four-bit entry for each GC_BIGSZ sized object from the base.
+ * 0b0000: slot free
+ * 0b0001: slot used, unmarked
+ * 0b0010: continuation data from previous slot
+ * 0b0011: slot used, marked
+ * 0bx1xx: as above, but with revoke flag set
+ * 0b1111: object not managed by GC
+ *
  *
  */
 struct gc_btbl {
@@ -87,19 +91,19 @@ struct gc_btbl {
 };
 
 /* Construct an index into the map. */
-#define	GC_BTBL_MKINDX(i, j)	((i) * 4 + (j))
+#define	GC_BTBL_MKINDX(i, j)	((i) * 2 + (j))
 
 /*
  * Break down an index into a byte index for the map (MAPINDX) and a bit index
  * within the byte (BYTINDX).
  */
-#define	GC_BTBL_MAPINDX(idx)	((idx) / 4)
-#define GC_BTBL_BYTINDX(idx)	((3 - ((idx) % 4)) * 2)
+#define	GC_BTBL_MAPINDX(idx)	((idx) / 2)
+#define GC_BTBL_BYTINDX(idx)	((1 - ((idx) % 2)) * 4)
 
 /* Get and set the btbl type of an index into a byte in the map. */
-#define GC_BTBL_GETTYPE(byte, j)	(((byte) >> GC_BTBL_BYTINDX(j)) & 3)
+#define GC_BTBL_GETTYPE(byte, j)	(((byte) >> GC_BTBL_BYTINDX(j)) & 15)
 #define GC_BTBL_SETTYPE(byte, j, type)	do {				\
-		    (byte) &= ~(uint8_t)(3 << GC_BTBL_BYTINDX(j));	\
+		    (byte) &= ~(uint8_t)(15 << GC_BTBL_BYTINDX(j));	\
 		    (byte) |= (type) << GC_BTBL_BYTINDX(j);		\
 	    } while (0)
 
@@ -138,11 +142,19 @@ struct gc_btbl {
 #define GC_STACKSZ		(4*GC_PAGESZ)
 
 #define GC_BLK_HDRSZ		(sizeof(struct gc_blk))
-#define GC_BTBL_FREE		((uint8_t)0x00)
-#define GC_BTBL_USED		((uint8_t)0x01)
-#define GC_BTBL_CONT		((uint8_t)0x02)
-#define GC_BTBL_USED_MARKED	((uint8_t)0x03)
 
+/*
+ * The btbl map has entries of the form 0byyxx.
+ * The xx part is the 2-bit "type", accessed by GC_BTBL_TYPE_MASK.
+ * The yy part is the 2-bit "flags", i.e. individual maskable bits.
+ */
+#define GC_BTBL_FREE		((uint8_t)0x0)	/* "type" is free */
+#define GC_BTBL_USED		((uint8_t)0x1)	/* "type" is used */
+#define GC_BTBL_CONT		((uint8_t)0x2)	/* "type" is cont */
+#define GC_BTBL_USED_MARKED	((uint8_t)0x3)	/* "type" is used+marked */
+#define GC_BTBL_TYPE_MASK	((uint8_t)0x3)
+#define GC_BTBL_UNMANAGED	((uint8_t)0xF)	/* obj unmanaged */
+#define GC_BTBL_REVOKED_MASK	((uint8_t)0x4)	/* obj revoked flag */
 
 /*
  * The objects stored in this btbl are small: that is, small enough
@@ -155,7 +167,7 @@ struct gc_btbl {
  * is, the garbage collector has sole control over allocating objects
  * in the btbl and is free to read from and write to their memory.
  */
-#define GC_BTBL_FLAG_MANAGED	0x00000001
+#define GC_BTBL_FLAG_MANAGED	0x00000002
 
 #define GC_MS_NONE	0	/* not collecting */
 #define GC_MS_MARK	1	/* marking */
@@ -270,6 +282,19 @@ extern _gc_cap struct gc_state	*gc_state_c;
 /* Tag granularity (<=> size of a capability). */
 #define	GC_TAG_GRAN 32
 
+int	gc_ty_is_cont(uint8_t ty);
+uint8_t	gc_ty_set_cont(uint8_t ty);
+int	gc_ty_is_free(uint8_t ty);
+uint8_t	gc_ty_set_free(uint8_t ty);
+int	gc_ty_is_used(uint8_t ty);
+uint8_t	gc_ty_set_used(uint8_t ty);
+int	gc_ty_is_marked(uint8_t ty);
+uint8_t	gc_ty_set_marked(uint8_t ty);
+int	gc_ty_is_revoked(uint8_t ty);
+uint8_t	gc_ty_set_revoked(uint8_t ty);
+int	gc_ty_is_unmanaged(uint8_t ty);
+uint8_t	gc_ty_set_unmanaged(uint8_t ty);
+
 int		 gc_init(void);
 
 /*
@@ -321,12 +346,19 @@ const char	*binstr(uint8_t _b);
 void		 gc_btbl_set_map(_gc_cap struct gc_btbl *_btbl,
 		    int _start, int _end, uint8_t _v);
 /*
- * Sets an object as marked.
- * Return values:
- * GC_OBJ_USED: object was used, and mark was set.
- * GC_OBJ_FREE: object is free, and mark was not set.
- * GC_OBJ_UNMANAGED: object is not managed by the GC.
- * GC_OBJ_ALREADY_MARKED: object is used and already marked.
+ * Sets an object as marked, and returns the *original* type of the
+ * object before the mark was set (this can be used to check if the
+ * object was marked already).
+ *
+ * For SMALL btbls, the type is "emulated" to match these
+ * requirements. For example, GC_BTBL_USED_MARKED means what it does
+ * for big btbls.
+ *
+ * e.g.:
+ * GC_BTBL_USED: object was used, and mark was set.
+ * GC_BTBL_FREE: object is free, and mark was not set.
+ * GC_BTBL_UNMANAGED: object is not managed by the GC.
+ * GC_BTBL_USED_MARKED: object is used and already marked.
  */
 int		 gc_set_mark(_gc_cap void *_p);
 
@@ -345,10 +377,13 @@ int		 gc_get_btbl_indx(_gc_cap struct gc_btbl *_btbl,
  * index of the object in the block table.
  * Only works on block tables with the SMALL flag.
  *
- * Return values:
- * GC_OBJ_USED:	block used, valid block header supplied.
- * GC_OBJ_FREE: block free, block header will be invalid.
- * GC_OBJ_UNMANAGED: block unmanaged by this btbl (invalid address).
+ * The object's map field is returned when possible. Otherwise,
+ * GC_INVALID_BTBL is returned.
+ *
+ * e.g.:
+ * GC_BTBL_USED: block used, valid block header supplied.
+ * GC_BTBL_FREE: block free, block header will be invalid.
+ * GC_BTBL_UNMANAGED: block unmanaged by this btbl (invalid address).
  * GC_INVALID_BTBL: wrong btbl for this operation (requires SMALL flag).
  */
 int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
@@ -359,19 +394,22 @@ int		 gc_get_block(_gc_cap struct gc_btbl *_btbl,
 /*
  * Returns the actual allocated object, given a pointer to its
  * interior, and the status of the object.
- * The status is one of the following:
- * GC_OBJ_USED: the object is managed by us, and currently in use.
- * GC_OBJ_FREE: the object is managed by us, and currently free, so
+ * The status is one of the GC_BTBL type flags indicating the status
+ * of the object, but not necessarily its *actual* type (e.g. for
+ * GC_BTBL_UNMANAGED, the object might not even have a btbl entry).
+ * e.g.:
+ * GC_BTBL_USED: the object is managed by us, and currently in use.
+ * GC_BTBL_FREE: the object is managed by us, and currently free, so
  *		could be allocated in the future (value of out_ptr
  *		indeterminate: undefined if block not allocated).
- * GC_OBJ_UNMANAGED: the object is unmanaged by the GC.
+ * GC_BTBL_UNMANAGED: the object is unmanaged by the GC.
  *
- * When the status is GC_OBJ_USED or GC_OBJ_FREE:
+ * When the type is GC_BTBL_USED or GC_BTBL_FREE:
  * - the object's block table is returned in *_out_btbl.
  * - the object's index in the block table is returned in *_out_big_indx.
  * - for SMALL btbls, the object's index in its block is returned in _out_sml_indx.
  *
- * When the status is GC_OBJ_UNMANAGED, these values are undefined.
+ * When the status is GC_BTBL_UNMANAGED, these values are undefined.
  */
 int		 gc_get_obj(_gc_cap void *_p,
 		    _gc_cap void * _gc_cap *_out_p,
@@ -380,13 +418,8 @@ int		 gc_get_obj(_gc_cap void *_p,
 		    _gc_cap struct gc_blk * _gc_cap *_out_blk,
 		    _gc_cap size_t *_out_sml_indx);
 
-/* Error codes and return values. */
-#define GC_OBJ_USED		0	/* managed by GC, currently in use */
-#define GC_OBJ_FREE		1	/* managed by GC, currently free */
-#define GC_OBJ_UNMANAGED	2	/* not managed by GC */
 /* Managed by GC, in use, but already marked. */
-#define GC_OBJ_ALREADY_MARKED	3
-#define GC_INVALID_BTBL		4	/* invalid block table */
+#define GC_INVALID_BTBL		0x1000000F	/* invalid block table */
 #define GC_TOO_SMALL		5	/* size too small */
 #define GC_SUCC			0	/* success */
 #define GC_ERROR		1	/* failure */

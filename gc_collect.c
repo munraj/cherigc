@@ -72,7 +72,7 @@ gc_push_roots(void)
 			continue;
 		rc = gc_set_mark(gc_state_c->gs_regs_c[i]);
 		gc_debug("gc_set_mark: rc=%d\n", rc);
-		if (rc == GC_OBJ_FREE) {
+		if (gc_ty_is_free(rc)) {
 			/*
 			 * Root should not be pointing to this region;
 			 * invalidate.
@@ -124,26 +124,29 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
 			    NULL, NULL, NULL, NULL);
 			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
-			if (rc == GC_OBJ_FREE) {
-				/* Immediately invalidate. */
-				*child_ptr = gc_cheri_cleartag(raw_obj);
-			} else if (rc == GC_OBJ_UNMANAGED) {
+			if (gc_ty_is_unmanaged(rc)) {
 				/* XXX: "Mark" this. */
 				error = gc_stack_push(
 				    gc_state_c->gs_mark_stack_c, raw_obj);
 				if (error != 0)
 					gc_error("mark stack overflow");
-			} else if (rc == GC_OBJ_USED) {
+			} else if (gc_ty_is_revoked(rc)) {
+				/* Do something? */
+			} else if (gc_ty_is_free(rc)) {
+				/* Immediately invalidate (?). */
+				*child_ptr = gc_cheri_cleartag(raw_obj);
+			} else if (gc_ty_is_used(rc)) {
 				rc = gc_set_mark(obj);
-				if (rc != GC_OBJ_ALREADY_MARKED)
-				{
-					error = gc_stack_push(
-					    gc_state_c->gs_mark_stack_c, obj);
-					if (error != 0)
-						gc_error("mark stack overflow");
-				}
+				/* XXX: assert rc == prev rc? */
+				error = gc_stack_push(
+				    gc_state_c->gs_mark_stack_c, obj);
+				if (error != 0)
+					gc_error("mark stack overflow");
+			} else if (gc_ty_is_marked(rc)) {
+				/* Already marked; ignore. */
 			} else {
 				/* NOTREACHABLE */
+				GC_NOTREACHABLE_ERROR();
 			}
 		}
 	}
@@ -195,11 +198,7 @@ gc_resume_marking(void)
 		    gc_cheri_ptr(&big_indx, sizeof(big_indx)),
 		    gc_cap_addr(&blk),
 		    gc_cheri_ptr(&sml_indx, sizeof(sml_indx)));
-		if (rc == GC_OBJ_FREE) {
-			/* NOTREACHABLE */
-			/* Impossible: a free object is never pushed. */
-			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE");
-		} else if (rc == GC_OBJ_UNMANAGED) {
+		if (gc_ty_is_unmanaged(rc)) {
 			gc_debug("warning: unmanaged object: %s", gc_cap_str(obj));
 			if (GC_ALIGN(gc_cheri_getbase(obj)) == NULL) {
 				gc_debug("warning: popped pointer is near-NULL");
@@ -233,6 +232,12 @@ gc_resume_marking(void)
 				gc_debug("VM mapping for unmanaged object: "
 				    GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
 			}
+		} else if (gc_ty_is_revoked(rc)) {
+			/* Do something? Or handle at the push? */
+		} else if (gc_ty_is_free(rc)) {
+			/* NOTREACHABLE */
+			/* Impossible: a free object is never pushed. */
+			gc_error("impossible: gc_get_obj returned GC_OBJ_FREE");
 		}
 		gc_debug("popped off the mark stack and reconstructed: %s",
 		    gc_cap_str(obj));
@@ -246,7 +251,7 @@ gc_mark_children(_gc_cap void *obj,
     _gc_cap struct gc_btbl *btbl, size_t big_indx,
     _gc_cap struct gc_blk *blk, size_t sml_indx)
 {
-	size_t page_idx, page_off, tag_off, npage, tag_end;
+	size_t page_idx, tag_off, npage, tag_end;
 	size_t i, len;
 	uintptr_t objlo, objhi, pagelo, pagehi;
 	struct gc_tags tags;
