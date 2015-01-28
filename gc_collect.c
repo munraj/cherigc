@@ -388,18 +388,17 @@ gc_resume_sweeping(void)
 	small = btbl->bt_flags & GC_BTBL_FLAG_SMALL;
 	/* Walk the btbl, making objects and entire blocks free. */
 	freecont = 0;
-	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+	for (i = 0; i < btbl->bt_nslots / 2; i++) {
 		byte = btbl->bt_map[i];
-		for (j = 0; j < 4; j++) {
+		for (j = 0; j < 2; j++) {
 			type = GC_BTBL_GETTYPE(byte, j);
 			addr = (char*)gc_cheri_getbase(btbl->bt_base) +
 					GC_BTBL_MKINDX(i, j) * btbl->bt_slotsz;
-			if (!small) {
+			if (!small)
 				gc_sweep_large_iter(btbl, &byte, type, addr, j,
 				    &freecont);
-			} else {
+			else
 				gc_sweep_small_iter(btbl, &byte, type, addr, j);
-			}
 		}
 		btbl->bt_map[i] = byte;
 	}

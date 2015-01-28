@@ -66,17 +66,20 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 	uint64_t addr;
 	uint64_t prev_cont_addr;
 	uint64_t prev_addr;
-	uint8_t byte;
+	uint8_t byte, type;
+	int small;
 
 	gc_debug("btbl base: %s\n", gc_cap_str(btbl->bt_base));
 	prev_cont_addr = 0;
 	prev_addr = 0;
-	for (i = 0; i < btbl->bt_nslots / 4; i++) {
+	small = (btbl->bt_flags & GC_BTBL_FLAG_SMALL) ? 1 : 0;
+	for (i = 0; i < btbl->bt_nslots / 2; i++) {
 		byte = btbl->bt_map[i];
-		for (j=0; j<4; j++) {
+		for (j=0; j<2; j++) {
 			addr = (uint64_t)gc_cheri_getbase(btbl->bt_base) +
-			    (4 * i + j) * btbl->bt_slotsz;
-			if (prev_cont_addr && (byte >> 6) != GC_BTBL_CONT) {
+			    GC_BTBL_MKINDX(i, j) * btbl->bt_slotsz;
+			type = GC_BTBL_GETTYPE(byte, j);
+			if (prev_cont_addr && !gc_ty_is_cont(type)) {
 				if (prev_cont_addr == prev_addr)
 					gc_debug("0x%llx    continuation data",
 					    prev_cont_addr);
@@ -85,31 +88,26 @@ gc_print_map(_gc_cap struct gc_btbl * btbl)
 					    prev_cont_addr, prev_addr);
 				prev_cont_addr = 0;
 			}
-			switch (byte >> 6) {
-			case 0x1:
-				if (btbl->bt_flags & GC_BTBL_FLAG_SMALL)
+			if (gc_ty_is_used(type)) {
+				if (small)
 					gc_debug("0x%llx    block header",
 					    addr);
 				else
 					gc_debug("0x%llx    used unmarked",
 					    addr);
-				break;
-			case 0x2:
+			} else if (gc_ty_is_cont(type)) {
 				if (prev_cont_addr == 0)
 					prev_cont_addr = addr;
-				break;
-			case 0x3:
-				if (btbl->bt_flags & GC_BTBL_FLAG_SMALL)
+			} else if (gc_ty_is_marked(type)) {
+				if (small)
 					gc_debug("0x%llx    reserved", addr);
 				else
 					gc_debug("0x%llx    used marked", addr);
-				break;
 			}
-			byte <<= 2;
 			prev_addr = addr;
 		}
 	}
-	if (prev_cont_addr) {
+	if (prev_cont_addr != 0) {
 		if (prev_cont_addr == prev_addr)
 			gc_debug("0x%llx    continuation data", prev_cont_addr);
 		else
