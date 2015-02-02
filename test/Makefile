@@ -1,12 +1,15 @@
 .include "../cheridefs.mk"
 LD=$(CC)
 LDFLAGS=
+#LDADD+=-Wl,-Bstatic -lcheri -Wl,-Bstatic
+LDADD+=$(CHERI_SYSROOT)/usr/lib/libcheri.a
 CFLAGS+=-g
 CFLAGS+=-Wall -I.. -DTF_FORK
-OBJS=test.o framework.o
+CFLAGS+=-DSB_BIN=\"sb.bin\" -DSB_HPSZ=1048576
+OBJS=test.o framework.o test_sb.o
 
 .PHONY: all clean
-all: gctest
+all: gctest sb.bin
 
 .c.o:
 	$(CC) $(CFLAGS) -o $@ -c $<
@@ -15,6 +18,17 @@ gctest: ../libcherigc.a $(OBJS)
 	$(LD) $(LDFLAGS) -o gctest $(OBJS) ../libcherigc.a $(LDADD)
 
 clean:
-	rm -f *.o gctest
+	rm -f *.o gctest sb.elf sb.bin sb.E
 
 test.o: test.c ../gc.h
+
+# Sandbox
+sb.bin: sb.elf
+	$(OBJCOPY) -S -O binary sb.elf sb.bin
+
+sb.elf: sb.o
+	$(LD) -Wl,--script=$(CHERI_SANDBOX_LD) -nostdlib -o sb.elf sb.o -Wl,-Bstatic -lc_cheri
+
+sb.o: sb.c
+	$(CC) $(CFLAGS) -mabi=sandbox -o sb.E -E sb.c
+	$(CC) $(CFLAGS) -mabi=sandbox -o sb.o -c sb.c

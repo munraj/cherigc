@@ -90,7 +90,7 @@ tf_run(struct tf_test *test)
 	}
 #endif
 	test->t_rc = test->t_fn(test);
-	fprintf(stderr, "test %s: %s (rc=%d)\n", test->t_desc,
+	fprintf(stderr, "**test %s: %s (rc=%d)\n", test->t_desc,
 	    test->t_rc == TF_SUCC ? "SUCC" : "FAIL", test->t_rc);
 }
 

@@ -19,6 +19,7 @@
 #include <gc_debug.h>
 
 #include "framework.h"
+#include "test_sb.h"
 
 tf_sig_fn	siginfo_hnd;
 testfn		test_gc_init;
@@ -34,9 +35,10 @@ struct tf_test	tests[] = {
 #ifdef GC_USE_LIBPROCSTAT
 	/*{.t_fn = test_procstat, .t_desc = "libprocstat", .t_dofork = 0},*/
 #endif
-	{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
+	//{.t_fn = test_ll, .t_desc = "linked list", .t_dofork = 0},
 	//{.t_fn = test_store, .t_desc = "ptr store", .t_dofork = 0},
 	/*{.t_fn = test_gc_malloc, .t_desc = "gc malloc", .t_dofork = 0},*/
+	{.t_fn = test_sb, .t_desc = "sandboxing", .t_dofork = 0},
 	{.t_fn = NULL},
 };
 
@@ -176,9 +178,9 @@ test_ll(struct tf_test *thiz)
 	uint8_t h;
 
 	/* Configurable */
-	nmax = 10;
-	nsz = 2001;
-	junksz = 2000;
+	nmax = 100;
+	nsz = 201;
+	junksz = 200;
 	junkfill = 0x0BADDEAD;
 	junkn = 3;
 

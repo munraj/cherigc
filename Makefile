@@ -19,6 +19,7 @@ gctest: libcherigc.a
 
 push: gctest
 	$(CHERI_PUSH) test/gctest $(CHERI_PUSH_DIR)/gctest
+	$(CHERI_PUSH) test/sb.bin $(CHERI_PUSH_DIR)/sb.bin
 
 clean:
 	rm -f *.o *.a test/*.o
