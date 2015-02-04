@@ -121,6 +121,7 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	for (child_ptr = parent; tags; tags >>= 1, child_ptr++) {
 		if (tags & 1) {
 			raw_obj = *child_ptr;
+			raw_obj = gc_unseal(raw_obj);
 			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
 			    NULL, NULL, NULL, NULL);
 			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
@@ -193,6 +194,7 @@ gc_resume_marking(void)
 		 * will throw the GC into an infinite loop...
 		 */
 		gc_debug("popped off the mark stack, raw: %s", gc_cap_str(obj));
+		obj = gc_unseal(obj);
 		rc = gc_get_obj(obj, gc_cap_addr(&obj),
 		    gc_cap_addr(&btbl),
 		    gc_cheri_ptr(&big_indx, sizeof(big_indx)),

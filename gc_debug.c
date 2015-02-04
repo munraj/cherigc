@@ -33,11 +33,19 @@ gc_log_severity_str(int severity)
 const char *
 gc_cap_str(_gc_cap void *ptr)
 {
-	static char s[50];
+	static char s[128];
 
-	snprintf(s, sizeof(s), "[b=%p o=%zu l=0x%zx t=%d]",
-	    (void*)gc_cheri_getbase(ptr), gc_cheri_getoffset(ptr),
-	    gc_cheri_getlen(ptr), gc_cheri_gettag(ptr));
+	if (ptr == NULL)
+		snprintf(s, sizeof(s), "[null cap]");
+	else {
+		snprintf(s, sizeof(s), "[b=%p o=%zu l=0x%zx t=%d s=%d]",
+		    (void*)gc_cheri_getbase(ptr),
+		    gc_cheri_getoffset(ptr),
+		    gc_cheri_getlen(ptr),
+		    gc_cheri_gettag(ptr),
+		    gc_cheri_getsealed(ptr));
+	}
+
 	return (s);
 }
 

@@ -733,6 +733,20 @@ gc_free(_gc_cap void *ptr)
 	gc_error("unimplemented: gc_free");
 }
 
+void
+gc_revoke(_gc_cap void *ptr)
+{
+
+	gc_error("unimplemented: gc_revoke");
+}
+
+void
+gc_reuse(_gc_cap void *ptr)
+{
+
+	gc_error("unimplemented: gc_reuse");
+}
+
 _gc_cap void *
 gc_alloc_internal(size_t sz)
 {

@@ -98,9 +98,22 @@ gc_get_static_region (void)
 		len = top - good_base;
 		ret = gc_cheri_ptr(good_base, len);
 		gc_debug("found bottom of static region: %s", gc_cap_str(ret));
-		return ret;
+		return (ret);
 	}
 	/* Never segfaulted. */
 	gc_error("decremented base to 0");
 	return (NULL);
+}
+
+_gc_cap void *
+gc_unseal(_gc_cap void *obj)
+{
+	_gc_cap void *sealer;
+
+	if (gc_cheri_getsealed(obj)) {
+		sealer = gc_cheri_ptr((void *)gc_cheri_gettype(obj), 0);
+		obj = gc_cheri_unseal(obj, sealer);
+	}
+
+	return (obj);
 }
