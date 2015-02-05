@@ -40,8 +40,8 @@ gc_cap_str(_gc_cap void *ptr)
 	else {
 		snprintf(s, sizeof(s), "[b=%p o=%zu l=0x%zx t=%d s=%d]",
 		    (void*)gc_cheri_getbase(ptr),
-		    gc_cheri_getoffset(ptr),
-		    gc_cheri_getlen(ptr),
+		    (size_t)gc_cheri_getoffset(ptr),
+		    (size_t)gc_cheri_getlen(ptr),
 		    gc_cheri_gettag(ptr),
 		    gc_cheri_getsealed(ptr));
 	}

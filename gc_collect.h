@@ -13,6 +13,7 @@ void	gc_start_marking(void);
 int	gc_is_unlimited(_gc_cap void *_obj);
 void	gc_scan_tags(_gc_cap void *_obj, struct gc_tags _tags);
 void	gc_scan_tags_64(_gc_cap void *_obj, uint64_t _tags);
+int	gc_push_root(_gc_cap void * _gc_cap *_rootp);
 void	gc_push_roots(void);
 void	gc_resume_marking(void);
 void	gc_start_sweeping(void);

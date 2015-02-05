@@ -4,6 +4,7 @@
 #include <cheri/cheri_type.h>
 
 #include <gc.h>
+#include <gc_debug.h>
 
 #include "cheri_gc.h"
 

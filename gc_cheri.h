@@ -40,10 +40,13 @@
  *
  * Therefore the GC only scans objects referenced by, and possibly invalidates, the
  * capabilities in C17-C24, C25, C26 (recursively).
+ *
+ * XXX: now, we also DO save+restore+scan C1-C16, because the compiler doesn't
+ * save caller save regs to the stack.
  */
 
 #define	GC_INVALIDATE_UNUSED_REGS		\
-	GC_INVALIDATE_REG(1);			\
+	/*GC_INVALIDATE_REG(1);			\
 	GC_INVALIDATE_REG(2);			\
 	GC_INVALIDATE_REG(4);			\
 	GC_INVALIDATE_REG(5);			\
@@ -57,9 +60,10 @@
 	GC_INVALIDATE_REG(13);			\
 	GC_INVALIDATE_REG(14);			\
 	GC_INVALIDATE_REG(15);			\
-	GC_INVALIDATE_REG(16);
+	GC_INVALIDATE_REG(16);*/		\
+	do {} while (0)
 
-#define	GC_NUM_SAVED_REGS	10
+#define	GC_NUM_SAVED_REGS	25
 
 #define	GC_SAVE_REGS(buf)			\
 	GC_SAVE_REG(17, buf, 0);		\
@@ -71,7 +75,22 @@
 	GC_SAVE_REG(23, buf, 192);		\
 	GC_SAVE_REG(24, buf, 224);		\
 	GC_SAVE_REG(25, buf, 256);		\
-	GC_SAVE_REG(26, buf, 288);
+	GC_SAVE_REG(26, buf, 288);		\
+	GC_SAVE_REG(1, buf, 320);		\
+	GC_SAVE_REG(2, buf, 352);		\
+	GC_SAVE_REG(4, buf, 384);		\
+	GC_SAVE_REG(5, buf, 416);		\
+	GC_SAVE_REG(6, buf, 448);		\
+	GC_SAVE_REG(7, buf, 480);		\
+	GC_SAVE_REG(8, buf, 512);		\
+	GC_SAVE_REG(9, buf, 544);		\
+	GC_SAVE_REG(10, buf, 576);		\
+	GC_SAVE_REG(11, buf, 608);		\
+	GC_SAVE_REG(12, buf, 640);		\
+	GC_SAVE_REG(13, buf, 672);		\
+	GC_SAVE_REG(14, buf, 704);		\
+	GC_SAVE_REG(15, buf, 736);		\
+	GC_SAVE_REG(16, buf, 768);		\
 
 #define	GC_RESTORE_REGS(buf)			\
 	GC_RESTORE_REG(17, buf, 0);		\
@@ -83,7 +102,22 @@
 	GC_RESTORE_REG(23, buf, 192);		\
 	GC_RESTORE_REG(24, buf, 224);		\
 	GC_RESTORE_REG(25, buf, 256);		\
-	GC_RESTORE_REG(26, buf, 288);
+	GC_RESTORE_REG(26, buf, 288);		\
+	GC_RESTORE_REG(1, buf, 320);		\
+	GC_RESTORE_REG(2, buf, 352);		\
+	GC_RESTORE_REG(4, buf, 384);		\
+	GC_RESTORE_REG(5, buf, 416);		\
+	GC_RESTORE_REG(6, buf, 448);		\
+	GC_RESTORE_REG(7, buf, 480);		\
+	GC_RESTORE_REG(8, buf, 512);		\
+	GC_RESTORE_REG(9, buf, 544);		\
+	GC_RESTORE_REG(10, buf, 576);		\
+	GC_RESTORE_REG(11, buf, 608);		\
+	GC_RESTORE_REG(12, buf, 640);		\
+	GC_RESTORE_REG(13, buf, 672);		\
+	GC_RESTORE_REG(14, buf, 704);		\
+	GC_RESTORE_REG(15, buf, 736);		\
+	GC_RESTORE_REG(16, buf, 768);		\
 
 #define	GC_SAVE_REG(indx, buf, offset)		\
 	__asm__ __volatile__ (			\

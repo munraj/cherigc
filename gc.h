@@ -10,9 +10,10 @@
 #include <stdlib.h>
 
 #include "gc_cheri.h"
-#include "gc_stack.h"
-#include "gc_vm.h"
 #include "gc_scan.h"
+#include "gc_stack.h"
+#include "gc_ts.h"
+#include "gc_vm.h"
 
 struct gc_blk {
 	_gc_cap struct gc_blk	*bk_next;	/* next block in the list */
@@ -193,6 +194,10 @@ struct gc_state {
 	_gc_cap void		*gs_regs[GC_NUM_SAVED_REGS];
 	/* Points to gs_regs with correct bound. */
 	_gc_cap void *_gc_cap	*gs_regs_c;
+	/* Trusted stack buffer. */
+	struct gc_ts		 gs_gts;
+	/* Capability to trusted stack buffer with correct bound. */
+	_gc_cap struct gc_ts	*gs_gts_c;
 	/* Capability to the stack just as the collector is entered. */
 	_gc_cap void		*gs_stack;
 	/* Capability to stack bottom; initialized once only. */
@@ -209,7 +214,7 @@ struct gc_state {
 	_gc_cap struct gc_stack	*gs_mark_stack_c;
 	/* Capability to sweep stack with correct bound. */
 	_gc_cap struct gc_stack	*gs_sweep_stack_c;
-	/* Table of memory mappings */
+	/* Table of memory mappings. */
 	struct gc_vm_tbl	 gs_vt;
 #ifdef GC_COLLECT_STATS
 	/* Number of objects currently allocated (roughly). */

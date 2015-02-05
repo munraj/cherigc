@@ -8,12 +8,16 @@
 #include "sb_param.h"
 #include "cheri_gc.h"
 
-void *p;
+int	 printf(const char *, ...);
+int	 sprintf(char *, const char *, ...);
+char	*strcpy(char *, const char *);
+
+static void *p;
 
 const char *
 pstr(void *p)
 {
-	char s[50];
+	static char s[50];
 
 	if (p == (void *)0)
 		return (strcpy(s, "null cap"));
@@ -30,8 +34,8 @@ pstr(void *p)
 int
 try_use(struct sb_param *sp)
 {
-	char *s;
 
+	printf("&p is %s\n", pstr(&p));
 	printf("p is %s\n", pstr(p));
 	return (0);
 }
@@ -43,6 +47,7 @@ init(struct sb_param *sp)
 
 	rc = cheri_gc_alloc_c(sp->sp_gc, &p, 500);
 	printf("result: %d\n", rc);
+	printf("p: %s\n", pstr(p));
 	return (rc);
 }
 

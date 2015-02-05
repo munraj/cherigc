@@ -6,6 +6,7 @@
 void
 gc_collect(void)
 {
+	int rc;
 
 	switch (gc_state_c->gs_mark_state) {
 	case GC_MS_MARK:
@@ -23,6 +24,18 @@ gc_collect(void)
 		gc_state_c->gs_nsweepbytes = 0;
 		gc_state_c->gs_ntcollect++;
 #endif
+		/* Update the VM info. */
+		if (gc_vm_tbl_update(&gc_state_c->gs_vt) != GC_SUCC) {
+			gc_error("gc_vm_tbl_update");
+			return;
+		}
+		gc_print_vm_tbl(&gc_state_c->gs_vt);
+		/* Get the trusted stack. */
+		rc = gc_cheri_get_ts(gc_state_c->gs_gts_c);
+		if (rc != 0) {
+			gc_error("gc_cheri_get_ts error: %d", rc);
+			return;
+		}
 		gc_start_marking();
 		/* Because we're not incremental yet: */
 		/*while (gc_state_c->mark_state != GC_MS_SWEEP)
@@ -31,6 +44,13 @@ gc_collect(void)
 			gc_resume_sweeping();*/
 		while (gc_state_c->gs_mark_state != GC_MS_NONE)
 			gc_resume_marking();
+		/* Restore the trusted stack. */
+		rc = gc_cheri_put_ts(gc_state_c->gs_gts_c);
+		if (rc != 0) {
+			gc_error("gc_cheri_put_ts error: %d", rc);
+		return;
+	}
+
 		break;
 	default:
 		/* NOTREACHABLE */
@@ -56,38 +76,60 @@ gc_start_marking(void)
 	gc_resume_marking();
 }
 
+int
+gc_push_root(_gc_cap void * _gc_cap *rootp)
+{
+	int rc;
+
+	if (!gc_cheri_gettag(*rootp) || /* don't push invalid caps */
+	    gc_is_unlimited(*rootp)) /* don't push all of memory */
+		return (0);
+	rc = gc_set_mark(*rootp);
+	gc_debug("gc_set_mark: rc=%d\n", rc);
+	if (gc_ty_is_free(rc)) {
+		/*
+		 * Root should not be pointing to this region;
+		 * invalidate.
+		 */
+		*rootp = gc_cheri_cleartag(*rootp);
+	} else {
+		/* Push whether managed or not. */
+		rc = gc_stack_push(gc_state_c->gs_mark_stack_c, *rootp);
+		if (rc != 0) {
+			gc_error("mark stack overflow");
+			return (1);
+		}
+	}
+
+	return (0);
+}
+
 /* Push roots to mark stack. */
 void
 gc_push_roots(void)
 {
-	int i, rc, error;
+	int i, rc;
+	_gc_cap void * _gc_cap *cap;
+	size_t ncap;
 
 	gc_debug("push roots:");
-	for (i = 0; i < GC_NUM_SAVED_REGS; i++)
-	{
-		gc_debug("root: c%d: %s", 17 + i,
+	for (i = 0; i < GC_NUM_SAVED_REGS; i++) {
+		gc_debug("root: c%d: %s",
+		    i >= 10 ? (i >= 12 ? i - 8 : i - 9) : 17 + i,
 		    gc_cap_str(gc_state_c->gs_regs_c[i]));
-		if (!gc_cheri_gettag(gc_state_c->gs_regs_c[i]) || /* don't push invalid caps */
-		    gc_is_unlimited(gc_state_c->gs_regs_c[i])) /* don't push all of memory */
-			continue;
-		rc = gc_set_mark(gc_state_c->gs_regs_c[i]);
-		gc_debug("gc_set_mark: rc=%d\n", rc);
-		if (gc_ty_is_free(rc)) {
-			/*
-			 * Root should not be pointing to this region;
-			 * invalidate.
-			 */
-			gc_state_c->gs_regs_c[i] = gc_cheri_cleartag(
-			    gc_state_c->gs_regs_c[i]);
-		} else {
-			/* Push whether managed or not. */
-			error = gc_stack_push(gc_state_c->gs_mark_stack_c,
-			    gc_state_c->gs_regs_c[i]);
-			if (error != 0) {
-				gc_error("mark stack overflow");
-				return;
-			}
-		}
+		rc = gc_push_root(&gc_state_c->gs_regs_c[i]);
+		if (rc != 0)
+			return;
+	}
+
+	cap = (_gc_cap void * _gc_cap *)gc_state_c->gs_gts_c;
+	ncap = gc_cheri_getlen(gc_state_c->gs_gts_c) /
+	    sizeof(_gc_cap void *);
+	for (i = 0; i < ncap; i++) {
+		gc_debug("root: ts%d: %s", i, gc_cap_str(cap[i]));
+		rc = gc_push_root(&cap[i]);
+		if (rc != 0)
+			return;
 	}
 
 	/*
@@ -258,6 +300,8 @@ gc_mark_children(_gc_cap void *obj,
 	uintptr_t objlo, objhi, pagelo, pagehi;
 	struct gc_tags tags;
 	_gc_cap char (*page)[GC_PAGESZ];
+	_gc_cap struct gc_vm_ent *ve;
+	_gc_cap struct gc_vm_tbl *vt;
 
 	/*
 	 * Mark children of object.
@@ -283,8 +327,18 @@ gc_mark_children(_gc_cap void *obj,
 		/*
 		 * Unmanaged object. Get the tags directly.
 		 */
+		vt = &gc_state_c->gs_vt;
 		page_idx = 0;
-		tags = gc_get_page_tags(page);
+
+		ve = gc_vm_tbl_find(vt, (uint64_t)page);
+		/* assert(ve != NULL); */ /* guaranteed by caller */
+		if (ve->ve_prot & GC_VE_PROT_RD)
+			tags = gc_get_page_tags(page);
+		else {
+			gc_debug("warning: not allowed to read page 0x%llx\n", page);
+			tags.tg_lo = 0;
+			tags.tg_hi = 0;
+		}
 	} else {
 		page_idx = GC_SLOT_IDX_TO_PAGE_IDX(btbl, big_indx);
 		tags = gc_get_or_update_tags(btbl, page_idx);
@@ -312,8 +366,17 @@ gc_mark_children(_gc_cap void *obj,
 		page++;
 		if (btbl != NULL)
 			tags = gc_get_or_update_tags(btbl, page_idx);
-		else
-			tags = gc_get_page_tags(page);
+		else {
+			ve = gc_vm_tbl_find(vt, (uint64_t)page);
+			/* assert(ve != NULL); */ /* guaranteed by caller */
+			if (ve->ve_prot & GC_VE_PROT_RD)
+				tags = gc_get_page_tags(page);
+			else {
+				gc_debug("warning: not allowed to read page 0x%llx\n", page);
+				tags.tg_lo = 0;
+				tags.tg_hi = 0;
+			}
+		}
 	}
 
 	/*

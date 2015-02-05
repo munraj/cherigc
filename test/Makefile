@@ -1,6 +1,6 @@
 .include "../cheridefs.mk"
 LD=$(CC)
-LDFLAGS=
+LDFLAGS=-g
 #LDADD+=-Wl,-Bstatic -lcheri -Wl,-Bstatic
 LDADD+=$(CHERI_SYSROOT)/usr/lib/libcheri.a
 CFLAGS+=-g

@@ -1,4 +1,6 @@
+#include <stdio.h> 
 #include <string.h> 
+#include <gc_debug.h>
 #include "cheri_gc.h"
 #include "test_sb.h"
 
@@ -74,9 +76,8 @@ test_sb(struct tf_test *thiz)
 	gc_extern_collect();
 	
 	thiz->t_pf("invoke sandbox\n");
-	thiz->t_pf("note: spc is %p\n", (void *)spc);
-	thiz->t_pf("note: spc is %s\n", gc_cap_str(spc));
 	spc->sp_op = OP_TRY_USE;
+	printf("note: spc is %s\n", gc_cap_str(spc));
 	rc = sb_invoke(thiz, &sb, spc);
 	thiz->t_pf("return value from sandbox: %d\n", rc);
 

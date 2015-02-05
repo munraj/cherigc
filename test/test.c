@@ -243,7 +243,7 @@ test_store(struct tf_test *thiz)
 	size_t i;
 
 	n = gc_malloc(2004);
-	n->p = gc_cheri_ptr(0x5678, 0x7890);
+	n->p = gc_cheri_ptr((void *)0x5678, 0x7890);
 	for (i=0; i<2004-sizeof(*n); i++)
 		n->v[i] = 99;
 	gc_malloc(2005);

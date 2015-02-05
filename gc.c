@@ -220,6 +220,8 @@ gc_init(void)
 	memset((void *)gc_state_c, 0, sizeof(struct gc_state));
 	gc_state_c->gs_regs_c = gc_cheri_ptr((void *)&gc_state_c->gs_regs,
 	    sizeof(gc_state_c->gs_regs));
+	gc_state_c->gs_gts_c = gc_cheri_ptr((void *)&gc_state_c->gs_gts,
+	    sizeof(gc_state_c->gs_gts));
 	gc_state_c->gs_mark_state = GC_MS_NONE;
 
 	/* 4096*16384 => 64MB heap. */
