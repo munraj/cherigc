@@ -158,6 +158,10 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	_gc_cap void *raw_obj;
 	int rc, error;
 
+	/* Optimization. */
+	if (tags == 0)
+		return;
+
 	gc_debug("== gc_scan_tags_64: parent: %s, tags 0x%llx", gc_cap_str(parent), tags);
 	gc_debug_indent(1);
 	for (child_ptr = parent; tags; tags >>= 1, child_ptr++) {
@@ -330,12 +334,12 @@ gc_mark_children(_gc_cap void *obj,
 		vt = &gc_state_c->gs_vt;
 		page_idx = 0;
 
-		ve = gc_vm_tbl_find(vt, (uint64_t)page);
+		ve = gc_vm_tbl_find(vt, (uint64_t)(void *)page);
 		/* assert(ve != NULL); */ /* guaranteed by caller */
 		if (ve->ve_prot & GC_VE_PROT_RD)
 			tags = gc_get_page_tags(page);
 		else {
-			gc_debug("warning: not allowed to read page 0x%llx\n", page);
+			gc_debug("warning: not allowed to read page 0x%llx", (uint64_t)(void *)page);
 			tags.tg_lo = 0;
 			tags.tg_hi = 0;
 		}
@@ -367,12 +371,12 @@ gc_mark_children(_gc_cap void *obj,
 		if (btbl != NULL)
 			tags = gc_get_or_update_tags(btbl, page_idx);
 		else {
-			ve = gc_vm_tbl_find(vt, (uint64_t)page);
+			ve = gc_vm_tbl_find(vt, (uint64_t)(void *)page);
 			/* assert(ve != NULL); */ /* guaranteed by caller */
 			if (ve->ve_prot & GC_VE_PROT_RD)
 				tags = gc_get_page_tags(page);
 			else {
-				gc_debug("warning: not allowed to read page 0x%llx\n", page);
+				gc_debug("warning: not allowed to read page 0x%llx", (uint64_t)(void *)page);
 				tags.tg_lo = 0;
 				tags.tg_hi = 0;
 			}

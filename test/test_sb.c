@@ -4,6 +4,34 @@
 #include "cheri_gc.h"
 #include "test_sb.h"
 
+#include <cheri/cheri_class.h>
+#include <cheri/cheri_type.h>
+struct sandbox_object {
+	CHERI_SYSTEM_OBJECT_FIELDS;
+	struct sandbox_class	*sbo_sandbox_classp;
+	void			*sbo_mem;
+	register_t		 sbo_sandboxlen;
+	register_t		 sbo_heapbase;
+	register_t		 sbo_heaplen;
+	uint			 sbo_flags;	/* Sandbox flags. */
+
+	/*
+	 * The object's own code and data capabilities.
+	 */
+	struct cheri_object	 sbo_cheri_object_rtld;
+	struct cheri_object	 sbo_cheri_object_invoke;
+
+	/*
+	 * System-object capabilities that can be passed to the object.
+	 */
+	struct cheri_object	 sbo_cheri_object_system;
+
+	/*
+	 * Sandbox statistics.
+	 */
+	struct sandbox_object_stat	*sbo_sandbox_object_statp;
+};
+
 int
 sb_init(struct tf_test *thiz, struct sb *sbp,
     const char *path, size_t hpsz)
@@ -64,9 +92,12 @@ test_sb(struct tf_test *thiz)
 		thiz->t_pf("error: cheri_gc_new\n");
 		return (rc);
 	}
+	
+	thiz->t_pf("sandbox codecap: %s\n", gc_cap_str(sb.sb_op->sbo_cheri_object_invoke.co_codecap));
+	thiz->t_pf("sandbox datacap: %s\n", gc_cap_str(sb.sb_op->sbo_cheri_object_invoke.co_datacap));
 
 	/* XXX: assume GC initialized. */
-
+	
 	thiz->t_pf("invoke sandbox\n");
 	spc->sp_op = OP_INIT;
 	rc = sb_invoke(thiz, &sb, spc);

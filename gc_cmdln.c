@@ -7,22 +7,24 @@
 #include "gc_debug.h"
 
 struct gc_cmd	gc_cmds[] = {
-	{.c_cmd = (const char *[]){"help", "h", NULL}, .c_fn = &gc_cmd_help,
-	 .c_desc = "Display help"},
 	{.c_cmd = (const char *[]){"cont", "c", "", NULL}, .c_fn = &gc_cmd_cont,
 	 .c_desc = "Continue running"},
-	{.c_cmd = (const char *[]){"next", "n", NULL}, .c_fn = &gc_cmd_next,
-	 .c_desc = "Step one \"logical\" step"},
-	{.c_cmd = (const char *[]){"stat", "s", NULL}, .c_fn = &gc_cmd_stat,
-	 .c_desc = "Display statistics"},
-	{.c_cmd = (const char *[]){"map", "m", NULL}, .c_fn = &gc_cmd_map,
-	 .c_desc = "Display btbl map"},
+	{.c_cmd = (const char *[]){"help", "h", NULL}, .c_fn = &gc_cmd_help,
+	 .c_desc = "Display help"},
 	{.c_cmd = (const char *[]){"info", "i", NULL}, .c_fn = &gc_cmd_info,
 	 .c_desc = "Display information for page/object"},
-	{.c_cmd = (const char *[]){"uptags", "ut", NULL}, .c_fn = &gc_cmd_uptags,
-	 .c_desc = "Update tags for page/object"},
+	{.c_cmd = (const char *[]){"map", "m", NULL}, .c_fn = &gc_cmd_map,
+	 .c_desc = "Display btbl map"},
+	{.c_cmd = (const char *[]){"next", "n", NULL}, .c_fn = &gc_cmd_next,
+	 .c_desc = "Step one \"logical\" step"},
 	{.c_cmd = (const char *[]){"quit", "q", NULL}, .c_fn = &gc_cmd_quit,
 	 .c_desc = "Quit"},
+	{.c_cmd = (const char *[]){"stat", "s", NULL}, .c_fn = &gc_cmd_stat,
+	 .c_desc = "Display statistics"},
+	{.c_cmd = (const char *[]){"uptags", "ut", NULL}, .c_fn = &gc_cmd_uptags,
+	 .c_desc = "Update tags for page/object"},
+	{.c_cmd = (const char *[]){"vm", NULL}, .c_fn = &gc_cmd_vm,
+	 .c_desc = "Display VM mapping information"},
 	{.c_cmd = NULL},
 };
 
@@ -199,6 +201,14 @@ gc_cmd_uptags(struct gc_cmd *cmd, char **arg)
 		bt->bt_tags[pg_idx].tg_lo,
 		bt->bt_tags[pg_idx].tg_v);
 
+	return (0);
+}
+
+int
+gc_cmd_vm(struct gc_cmd *cmd, char **arg)
+{
+
+	gc_print_vm_tbl(&gc_state_c->gs_vt);
 	return (0);
 }
 

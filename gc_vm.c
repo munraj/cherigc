@@ -66,6 +66,22 @@ gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *vt)
 #endif /* GC_USE_LIBPROCSTAT */
 }
 
+int
+gc_vm_tbl_track_all(_gc_cap struct gc_vm_tbl *vt)
+{
+#ifdef GC_USE_LIBPROCSTAT
+	/*
+	 * Create or update btbls to track each mapping,
+	 * with page granularity.
+	 * This allows us to track even unmanaged objects.
+	 */
+	
+#else /* !GC_USE_LIBPROCSTAT */
+	return (GC_ERROR);
+#endif /* GC_USE_LIBPROCSTAT */
+}
+
+
 _gc_cap struct gc_vm_ent *
 gc_vm_tbl_find_btbl(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_btbl *bt)
 {

@@ -29,5 +29,6 @@ gc_cmd_fn	gc_cmd_map;
 gc_cmd_fn	gc_cmd_info;
 gc_cmd_fn	gc_cmd_uptags;
 gc_cmd_fn	gc_cmd_quit;
+gc_cmd_fn	gc_cmd_vm;
 
 #endif /* !_GC_CMDLN_H_ */
