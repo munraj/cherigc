@@ -89,6 +89,7 @@ struct gc_btbl {
 	int		 bt_flags;	/* flags */
 	_gc_cap uint8_t	*bt_map;	/* size: bt_nslots/4 */
 	_gc_cap struct gc_tags	*bt_tags;	/* array of tags for each page */
+	int		 bt_valid;	/* used by gc_vm.c */
 };
 
 /* Construct an index into the map. */

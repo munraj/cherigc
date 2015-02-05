@@ -21,6 +21,9 @@ gc_vm_tbl_alloc(_gc_cap struct gc_vm_tbl *vt, size_t sz)
 	vt->vt_ent = gc_alloc_internal(sizeof(*vt->vt_ent) * sz);
 	if (vt->vt_ent == NULL)
 		return (1);
+	vt->vt_bt = gc_alloc_internal(sizeof(*vt->vt_bt) * sz);
+	if (vt->vt_bt == NULL)
+		return (1);
 	vt->vt_sz = sz;
 	vt->vt_nent = 0;
 	return (0);
@@ -56,6 +59,7 @@ gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *vt)
 		vt->vt_ent[i].ve_prot = kv[i].kve_protection;
 		vt->vt_ent[i].ve_type = kv[i].kve_type;
 		vt->vt_ent[i].ve_gctype = 0;
+		gc_vm_tbl_track(vt, &vt->vt_ent[i]);
 	}
 	procstat_freevmmap(ps, kv);
 	procstat_freeprocs(ps, kp);
@@ -67,20 +71,89 @@ gc_vm_tbl_update(_gc_cap struct gc_vm_tbl *vt)
 }
 
 int
-gc_vm_tbl_track_all(_gc_cap struct gc_vm_tbl *vt)
+gc_vm_tbl_track(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_vm_ent *ve)
 {
 #ifdef GC_USE_LIBPROCSTAT
+	size_t i;
+
 	/*
-	 * Create or update btbls to track each mapping,
-	 * with page granularity.
+	 * Create or find existing btbl to track this mapping.
+	 *
 	 * This allows us to track even unmanaged objects.
+	 *
+	 * First do an O(n) search through the array of btbls,
+	 * using the current btbl as a hint (because updates
+	 * tend not to reorder entries).
 	 */
 	
+	if (gc_vm_tbl_bt_match(ve) == GC_SUCC)
+		return (GC_SUCC);
+
+	/* Find other existing. */
+	for (i = 0; i < vt->vt_nent; i++) {
+		ve->ve_bt = &vt->vt_bt[i];
+		if (gc_vm_tbl_bt_match(ve) == GC_SUCC)
+			return (GC_SUCC);
+	}
+
+	/* Allocate from pool. */
+	for (i = 0; i < vt->vt_sz; i++)
+		if (!vt->vt_bt[i].bt_valid) {
+			ve->ve_bt = &vt->vt_bt[i];
+			return (gc_vm_tbl_new_bt(ve));
+		}
+
+	/* Fail; too many entries unmapped. */
+	return (GC_ERROR);
 #else /* !GC_USE_LIBPROCSTAT */
 	return (GC_ERROR);
 #endif /* GC_USE_LIBPROCSTAT */
 }
 
+int
+gc_vm_tbl_new_bt(_gc_cap struct gc_vm_ent *ve)
+{
+	uint64_t base, len;
+	size_t npages, mapsz, tagsz;
+	static size_t tot =0,totmem=0;
+
+	base = ve->ve_start;
+	len = ve->ve_end - base;
+	npages = len / GC_PAGESZ;
+	mapsz = npages / 2;
+	tagsz = npages * sizeof(*ve->ve_bt->bt_tags);
+
+	ve->ve_bt->bt_base = gc_cheri_ptr((void *)base, len);
+	ve->ve_bt->bt_tags = NULL;
+	ve->ve_bt->bt_map = NULL;
+	printf("need %zu bytes for map\n", mapsz);
+	printf("need %zu bytes for tags\n", tagsz);
+	tot += mapsz + tagsz;
+	totmem += len;
+	printf("(tot %zu to track %zu bytes)\n", tot, totmem);
+	ve->ve_bt->bt_slotsz = GC_PAGESZ;
+	ve->ve_bt->bt_nslots = npages;
+	ve->ve_bt->bt_flags = 0;
+	ve->ve_bt->bt_valid = 1;
+
+	return (GC_SUCC);
+}
+
+int
+gc_vm_tbl_bt_match(_gc_cap struct gc_vm_ent *ve)
+{
+	uint64_t start, end;
+
+	if (ve->ve_bt == NULL)
+		return (GC_ERROR);
+
+	start = gc_cheri_getbase(ve->ve_bt->bt_base);
+	end = start + gc_cheri_getlen(ve->ve_bt->bt_base);
+	if (ve->ve_start == start && ve->ve_end == end)
+		return (GC_SUCC);
+
+	return (GC_ERROR);
+}
 
 _gc_cap struct gc_vm_ent *
 gc_vm_tbl_find_btbl(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_btbl *bt)

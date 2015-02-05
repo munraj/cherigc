@@ -1,5 +1,5 @@
-CHERIBSD?=/home/mbv21/trunk/tools/cheribsd
-CHERI_SDK?=/home/mbv21/trunk/tools/sdk
+CHERIBSD?=/home/mbv21/ctsrd/cherilibs/trunk/tools/cheribsd
+CHERI_SDK?=/home/mbv21/ctsrd/cherilibs/trunk/tools/sdk
 CHERI_SYSROOT:=$(CHERI_SDK)/sysroot
 CHERI_SDK_BIN:=$(CHERI_SDK)/bin
 CHERI_SANDBOX_LD:=$(CHERI_SYSROOT)/usr/libdata/ldscripts/sandbox.ld

@@ -195,6 +195,7 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	btbl->bt_slotsz = slotsz;
 	btbl->bt_nslots = nslots;
 	btbl->bt_flags = flags;
+	btbl->bt_valid = 1;
 
 	gc_debug("allocated a block table with %zu slots of size %zu each",
 	    nslots, slotsz);
