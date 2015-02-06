@@ -22,6 +22,7 @@ void	gc_sweep_large_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
 	    uint8_t type, void *addr, int j, int *freecont);
 void	gc_sweep_small_iter(_gc_cap struct gc_btbl *btbl, uint8_t *byte,
 	    uint8_t type, void *addr, int j);
+
 void	gc_mark_children(_gc_cap void *obj,
 	    _gc_cap struct gc_btbl *btbl, size_t big_indx,
 	    _gc_cap struct gc_blk *blk, size_t sml_indx);

@@ -87,7 +87,8 @@ test_sb(struct tf_test *thiz)
 	spc = cheri_ptr(&sp, sizeof(sp));
 	memset(&sp, 0, sizeof(sp));
 
-	rc = cheri_gc_new(CHERI_GC_METHOD_ALLOC_C, &sp.sp_gc);
+	rc = cheri_gc_new(CHERI_GC_METHOD_ALLOC_C |
+	    CHERI_GC_METHOD_STATUS_C, &sp.sp_gc);
 	if (rc != 0) {
 		thiz->t_pf("error: cheri_gc_new\n");
 		return (rc);

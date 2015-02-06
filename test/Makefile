@@ -3,7 +3,7 @@ LD=$(CC)
 LDFLAGS=-g
 #LDADD+=-Wl,-Bstatic -lcheri -Wl,-Bstatic
 LDADD+=$(CHERI_SYSROOT)/usr/lib/libcheri.a
-CFLAGS+=-g
+CFLAGS+=-g -gdwarf-2
 CFLAGS+=-Wall -I.. -DTF_FORK
 CFLAGS+=-DSB_BIN=\"sb.bin\" -DSB_HPSZ=1048576
 OBJS=test.o framework.o test_sb.o cheri_gc.o classes.o

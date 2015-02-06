@@ -156,6 +156,7 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	_gc_cap void * _gc_cap *child_ptr;
 	_gc_cap void *obj;
 	_gc_cap void *raw_obj;
+	_gc_cap struct gc_btbl *bt;
 	int rc, error;
 
 	/* Optimization. */
@@ -169,7 +170,8 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 			raw_obj = *child_ptr;
 			raw_obj = gc_unseal(raw_obj);
 			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
-			    NULL, NULL, NULL, NULL);
+			    NULL, gc_cap_addr(&bt), NULL, NULL);
+			/* Assert: child has tag bit set! */
 			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
 			if (gc_ty_is_unmanaged(rc)) {
 				/* XXX: "Mark" this. */
@@ -183,7 +185,11 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 				/* Immediately invalidate (?). */
 				*child_ptr = gc_cheri_cleartag(raw_obj);
 			} else if (gc_ty_is_used(rc)) {
-				rc = gc_set_mark(obj);
+				/*
+				 * gc_set_mark_bt is an optimization;
+				 * could call gc_set_mark.
+				 */
+				rc = gc_set_mark_bt(bt, obj);
 				/* XXX: assert rc == prev rc? */
 				error = gc_stack_push(
 				    gc_state_c->gs_mark_stack_c, obj);
@@ -205,6 +211,7 @@ void
 gc_resume_marking(void)
 {
 	int empty, rc;
+	uint8_t type;
 	_gc_cap void *obj;
 	size_t sml_indx, big_indx;
 	_gc_cap struct gc_btbl *btbl;
@@ -273,14 +280,31 @@ gc_resume_marking(void)
 			ve = gc_vm_tbl_find(&gc_state_c->gs_vt,
 			    gc_cheri_getbase(obj));
 			if (ve == NULL) {
-				/* XXX: for now, refuse the scan. */
 				gc_debug("warning: refusing to scan unmanaged object for which VM info could not be obtained.");
 				return;
-			} else {
-				gc_debug("VM mapping for unmanaged object: "
-				    GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
 			}
-		} else if (gc_ty_is_revoked(rc)) {
+			else if (!(ve->ve_prot & GC_VE_PROT_RD)) {
+				gc_debug("warning: refusing to scan VM object without PROT_RD.");
+				return;
+			}
+			/* XXX: what about PROT_WR? */
+			gc_debug("VM mapping for unmanaged object: "
+			    GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
+			/*
+			 * As a hacky replacement for gc_get_obj,
+			 * look up type in ve->ve_bt.
+			 *
+			 * XXX: ve_bt always not NULL?
+			 */
+			btbl = ve->ve_bt;
+			rc = gc_get_btbl_indx(btbl, &big_indx, &type, obj);
+			if (rc != 0)
+				rc = GC_BTBL_UNMANAGED;
+			else
+				rc = type;
+		}
+		
+		if (gc_ty_is_revoked(rc)) {
 			/* Do something? Or handle at the push? */
 		} else if (gc_ty_is_free(rc)) {
 			/* NOTREACHABLE */
@@ -306,6 +330,7 @@ gc_mark_children(_gc_cap void *obj,
 	_gc_cap char (*page)[GC_PAGESZ];
 	_gc_cap struct gc_vm_ent *ve;
 	_gc_cap struct gc_vm_tbl *vt;
+	int unmanaged;
 
 	/*
 	 * Mark children of object.
@@ -326,8 +351,11 @@ gc_mark_children(_gc_cap void *obj,
 	pagehi = GC_ROUND_PAGESZ(objhi);
 	npage = (pagehi - pagelo) / GC_PAGESZ;
 	page = gc_cheri_ptr((void *)pagelo, GC_PAGESZ);
+	
+	unmanaged = (btbl == NULL) ||
+	    !(btbl->bt_flags & GC_BTBL_FLAG_MANAGED);
 
-	if (btbl == NULL) {
+	if (unmanaged) {
 		/*
 		 * Unmanaged object. Get the tags directly.
 		 */
@@ -368,7 +396,7 @@ gc_mark_children(_gc_cap void *obj,
 		gc_scan_tags(page, tags);
 		page_idx++;
 		page++;
-		if (btbl != NULL)
+		if (!unmanaged)
 			tags = gc_get_or_update_tags(btbl, page_idx);
 		else {
 			ve = gc_vm_tbl_find(vt, (uint64_t)(void *)page);

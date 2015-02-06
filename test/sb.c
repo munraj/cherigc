@@ -37,6 +37,7 @@ try_use(struct sb_param *sp)
 
 	printf("&p is %s\n", pstr(&p));
 	printf("p is %s\n", pstr(p));
+	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));
 	return (0);
 }
 
@@ -48,6 +49,7 @@ init(struct sb_param *sp)
 	rc = cheri_gc_alloc_c(sp->sp_gc, &p, 500);
 	printf("result: %d\n", rc);
 	printf("p: %s\n", pstr(p));
+	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));
 	return (rc);
 }
 

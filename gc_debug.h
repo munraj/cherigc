@@ -71,11 +71,12 @@ void		 gc_fill(_gc_cap void * _obj, uint32_t _magic);
  * Use this to print VM entries.
  */
 #define GC_DEBUG_VE_FMT						\
-		"0x%llx-0x%llx: p=%s sz=%3llu%c t=0x%x"
+		"0x%llx-0x%llx: p=%s sz=%3llu%c t=0x%x gt=0x%x bt=%p"
 #define GC_DEBUG_VE_PRI(ve)					\
 		    (ve)->ve_start, (ve)->ve_end,		\
 		    gc_ve_prot_str((ve)->ve_prot),		\
 		    SZFORMAT((ve)->ve_end - (ve)->ve_start),	\
-		    (ve)->ve_type
+		    (ve)->ve_type, (ve)->ve_gctype,		\
+		    (void *)(ve)->ve_bt
 
 #endif /* !_GC_DEBUG_H_ */

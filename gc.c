@@ -171,7 +171,7 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	memset((void *)btbl, 0, sizeof(struct gc_btbl));
 
 	memsz = slotsz * nslots;
-	mapsz = nslots / 2;
+	mapsz = (nslots + (2 - 1)) / 2;
 	npages = memsz / GC_PAGESZ;
 	tagsz = npages * sizeof(*btbl->bt_tags);
 
@@ -228,11 +228,11 @@ gc_init(void)
 	/* 4096*16384 => 64MB heap. */
 	/* XXX: 4096*10 => 40kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_small,
-	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL);
+	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL | GC_BTBL_FLAG_MANAGED);
 	/* 1024*16384 => 16MB heap. */
 	/* XXX: 1024*100 => 100kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_big,
-	    GC_BIGSZ, 100/*16384*/, 0);
+	    GC_BIGSZ, 100/*16384*/,  GC_BTBL_FLAG_MANAGED);
 
 	if (gc_stack_init(&gc_state_c->gs_mark_stack, GC_STACKSZ) != 0) {
 		gc_error("gc_init_stack(%zu)", GC_STACKSZ);
@@ -406,47 +406,54 @@ gc_btbl_set_map(_gc_cap struct gc_btbl *btbl, int start, int end, uint8_t value)
 }
 
 int
-gc_set_mark(_gc_cap void *ptr)
+gc_set_mark_big(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 {
-	_gc_cap struct gc_blk *blk;
 	size_t indx;
 	int rc;
 	uint8_t byte, type;
 
-	gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
-	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
-
-	/* Try small region. */
-	rc = gc_get_block(&gc_state_c->gs_btbl_small, &blk, &indx, NULL, ptr);
-	type = rc;
-	gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc, indx);
-	if (gc_ty_is_unmanaged(rc)) {
-		/* Try big region. */
-		rc = gc_get_btbl_indx(&gc_state_c->gs_btbl_big, &indx, &type,
-		    ptr);
-		gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
-		if (rc != 0)
-			return (GC_BTBL_UNMANAGED);
-		else if (gc_ty_is_revoked(type))
-			/* do something */;
-		else if (gc_ty_is_free(type))
-			return (type);
-		else if (gc_ty_is_marked(type))
-			return (type);
-		else if (gc_ty_is_used(type))
-		{
-			byte = gc_state_c->gs_btbl_big.bt_map[GC_BTBL_MAPINDX(indx)];
-			GC_BTBL_SETTYPE(byte, indx, gc_ty_set_marked(type));
-			gc_state_c->gs_btbl_big.bt_map[GC_BTBL_MAPINDX(indx)] = byte;
+	rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
+	gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
+	if (rc != 0)
+		return (GC_BTBL_UNMANAGED);
+	else if (gc_ty_is_revoked(type))
+		/* do something */;
+	else if (gc_ty_is_free(type))
+		return (type);
+	else if (gc_ty_is_marked(type))
+		return (type);
+	else if (gc_ty_is_used(type))
+	{
+		byte = bt->bt_map[GC_BTBL_MAPINDX(indx)];
+		GC_BTBL_SETTYPE(byte, indx, gc_ty_set_marked(type));
+		bt->bt_map[GC_BTBL_MAPINDX(indx)] = byte;
 #ifdef GC_COLLECT_STATS
+		if (bt->bt_flags & GC_BTBL_FLAG_MANAGED) {
 			gc_state_c->gs_nmark++;
 			gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)), NULL, NULL, NULL, NULL);
 			gc_state_c->gs_nmarkbytes += gc_cheri_getlen(ptr);
-#endif
-			gc_debug("set mark for big object at index %zu", indx);
-			return (type);
 		}
-		/* NOTREACHABLE; fall through */
+#endif
+		gc_debug("set mark for big object at index %zu", indx);
+		return (type);
+	}
+	GC_NOTREACHABLE_ERROR();
+	return (-1);
+}
+
+int
+gc_set_mark_small(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
+{
+	_gc_cap struct gc_blk *blk;
+	size_t indx;
+	int rc;
+	uint8_t type;
+
+	rc = gc_get_block(bt, &blk, &indx, NULL, ptr);
+	type = rc;
+	gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc, indx);
+	if (gc_ty_is_unmanaged(rc)) {
+		return (GC_BTBL_UNMANAGED);
 	} else if (gc_ty_is_free(type)) {
 		/* Entire block is free. */
 		return (type);
@@ -458,14 +465,59 @@ gc_set_mark(_gc_cap void *ptr)
 			return (gc_ty_set_marked(type)); /* already marked */
 		blk->bk_marks |= 1ULL << indx;
 #ifdef GC_COLLECT_STATS
-		gc_state_c->gs_nmark++;
-		gc_state_c->gs_nmarkbytes += blk->bk_objsz;
+		if (bt->bt_flags & GC_BTBL_FLAG_MANAGED) {
+			gc_state_c->gs_nmark++;
+			gc_state_c->gs_nmarkbytes += blk->bk_objsz;
+		}
 #endif
 		gc_debug("set mark for small object at index %zu", indx);
 		return (type);
 	}
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
+}
+
+int
+gc_set_mark_bt(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
+{
+
+	if (bt->bt_flags & GC_BTBL_FLAG_SMALL)
+		return (gc_set_mark_small(ptr, bt));
+	else
+		return (gc_set_mark_big(ptr, bt));
+}
+
+int
+gc_set_mark(_gc_cap void *ptr)
+{
+	int rc;
+	_gc_cap struct gc_vm_ent *ve;
+	uint64_t base;
+
+	gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
+	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
+
+	/* Try small region. */
+	rc = gc_set_mark_small(ptr, &gc_state_c->gs_btbl_small);
+	if (!gc_ty_is_unmanaged(rc))
+		return (rc);
+
+	/* Try big region. */
+	rc = gc_set_mark_big(ptr, &gc_state_c->gs_btbl_big);
+	if (!gc_ty_is_unmanaged(rc))
+		return (rc);
+
+	/*
+	 * In neither; must be unmanaged by the GC, but potentially
+	 * trackable in the VM mappings, so we try those.
+	 */
+	gc_debug("note: pointer %s is in neither big nor small region", gc_cap_str(ptr));
+	base = gc_cheri_getbase(ptr);
+	ve = gc_vm_tbl_find(&gc_state_c->gs_vt, base);
+	if (ve == NULL)
+		return (GC_BTBL_UNMANAGED);
+	gc_debug("note: found a btbl for it: %s", gc_cap_str(ve->ve_bt));
+	return (gc_set_mark_bt(ptr, ve->ve_bt));
 }
 
 int

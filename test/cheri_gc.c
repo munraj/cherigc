@@ -128,6 +128,21 @@ _cheri_gc_reuse_c(__capability void *ptr)
 	return (0);
 }
 
+static int
+_cheri_gc_status_c(__capability void *ptr)
+{
+	__capability struct cheri_gc *cgp;
+
+	/* Check permission to get status hasn't been revoked. */
+	cgp = cheri_getidc();
+	if (!(cgp->cg_perm & CHERI_GC_METHOD_STATUS_C)) {
+		return (-1);
+	}
+
+	/* Forward to GC. */
+	return (gc_get_obj(ptr, gc_cap_addr(&ptr), NULL, NULL, NULL, NULL));
+}
+
 int
 cheri_gc_enter(register_t methodnum, register_t a1,
     struct cheri_object co, __capability void *c3) __attribute__((cheri_ccall))
@@ -140,6 +155,8 @@ cheri_gc_enter(register_t methodnum, register_t a1,
 		return (_cheri_gc_revoke_c(c3));
 	case CHERI_GC_METHOD_REUSE_C:
 		return (_cheri_gc_reuse_c(c3));
+	case CHERI_GC_METHOD_STATUS_C:
+		return (_cheri_gc_status_c(c3));
 	default:
 		return (-1);
 	}

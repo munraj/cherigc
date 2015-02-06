@@ -27,6 +27,12 @@ struct gc_vm_ent {
  */
 #define GC_VE_TYPE_MANAGED	0x00000001UL
 
+/*
+ * How much memory to allocate to vt_bt_hp (aka max total size of
+ * block table map and tag bitmaps.
+ */
+#define	GC_BT_HP_SZ	1048576
+
 struct gc_vm_tbl {
 	/* Page mapping entries. */
 	_gc_cap struct gc_vm_ent	*vt_ent;
@@ -36,6 +42,8 @@ struct gc_vm_tbl {
 	size_t				 vt_nent;
 	/* Block table array. */
 	_gc_cap struct gc_btbl		*vt_bt;
+	/* Block table heap (for gc_vm_tbl_new_bt). */
+	_gc_cap void			*vt_bt_hp;
 };
 
 /* Returns GC_SUCC, GC_ERROR or GC_TOO_SMALL. */
@@ -52,7 +60,8 @@ _gc_cap struct gc_vm_ent	*gc_vm_tbl_find(
 /* Used internally. */
 int	gc_vm_tbl_track(_gc_cap struct gc_vm_tbl *_vt,
 	    _gc_cap struct gc_vm_ent *_ve);
-int	gc_vm_tbl_new_bt(_gc_cap struct gc_vm_ent *_ve);
+int	gc_vm_tbl_new_bt(_gc_cap struct gc_vm_tbl *_vt,
+	    _gc_cap struct gc_vm_ent *_ve);
 int	gc_vm_tbl_bt_match(_gc_cap struct gc_vm_ent *_ve);
 
 #endif /* !_GC_VM_H_ */

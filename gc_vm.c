@@ -26,6 +26,9 @@ gc_vm_tbl_alloc(_gc_cap struct gc_vm_tbl *vt, size_t sz)
 		return (1);
 	vt->vt_sz = sz;
 	vt->vt_nent = 0;
+	vt->vt_bt_hp = gc_alloc_internal(GC_BT_HP_SZ);
+	if (vt->vt_bt_hp == NULL)
+		return (1);
 	return (0);
 }
 
@@ -91,7 +94,10 @@ gc_vm_tbl_track(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_vm_ent *ve)
 
 	/* Find other existing. */
 	for (i = 0; i < vt->vt_nent; i++) {
-		ve->ve_bt = &vt->vt_bt[i];
+		ve->ve_bt = gc_cheri_incbase(vt->vt_bt,
+		    i * sizeof(*vt->vt_bt));
+		ve->ve_bt = gc_cheri_setlen(ve->ve_bt,
+		    sizeof(*ve->ve_bt));
 		if (gc_vm_tbl_bt_match(ve) == GC_SUCC)
 			return (GC_SUCC);
 	}
@@ -99,8 +105,11 @@ gc_vm_tbl_track(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_vm_ent *ve)
 	/* Allocate from pool. */
 	for (i = 0; i < vt->vt_sz; i++)
 		if (!vt->vt_bt[i].bt_valid) {
-			ve->ve_bt = &vt->vt_bt[i];
-			return (gc_vm_tbl_new_bt(ve));
+			ve->ve_bt = gc_cheri_incbase(vt->vt_bt,
+			    i * sizeof(*vt->vt_bt));
+			ve->ve_bt = gc_cheri_setlen(ve->ve_bt,
+			    sizeof(*ve->ve_bt));
+			return (gc_vm_tbl_new_bt(vt, ve));
 		}
 
 	/* Fail; too many entries unmapped. */
@@ -111,30 +120,36 @@ gc_vm_tbl_track(_gc_cap struct gc_vm_tbl *vt, _gc_cap struct gc_vm_ent *ve)
 }
 
 int
-gc_vm_tbl_new_bt(_gc_cap struct gc_vm_ent *ve)
+gc_vm_tbl_new_bt(_gc_cap struct gc_vm_tbl *vt,
+    _gc_cap struct gc_vm_ent *ve)
 {
 	uint64_t base, len;
 	size_t npages, mapsz, tagsz;
-	static size_t tot =0,totmem=0;
 
 	base = ve->ve_start;
 	len = ve->ve_end - base;
 	npages = len / GC_PAGESZ;
+	/* Round up npages to next multiple of 2. */
+	npages = (npages + (size_t)1) & ~(size_t)1;
 	mapsz = npages / 2;
 	tagsz = npages * sizeof(*ve->ve_bt->bt_tags);
 
 	ve->ve_bt->bt_base = gc_cheri_ptr((void *)base, len);
-	ve->ve_bt->bt_tags = NULL;
-	ve->ve_bt->bt_map = NULL;
-	printf("need %zu bytes for map\n", mapsz);
-	printf("need %zu bytes for tags\n", tagsz);
-	tot += mapsz + tagsz;
-	totmem += len;
-	printf("(tot %zu to track %zu bytes)\n", tot, totmem);
 	ve->ve_bt->bt_slotsz = GC_PAGESZ;
 	ve->ve_bt->bt_nslots = npages;
 	ve->ve_bt->bt_flags = 0;
 	ve->ve_bt->bt_valid = 1;
+	
+	/* Allocate tags and map contiguously from pool. */
+	if (gc_cheri_getlen(vt->vt_bt_hp) < mapsz + tagsz)
+			return (GC_ERROR);
+	ve->ve_bt->bt_map = gc_cheri_setlen(vt->vt_bt_hp, mapsz);
+	vt->vt_bt_hp = gc_cheri_incbase(vt->vt_bt_hp, mapsz);
+	ve->ve_bt->bt_tags = gc_cheri_setlen(vt->vt_bt_hp, tagsz);
+	vt->vt_bt_hp = gc_cheri_incbase(vt->vt_bt_hp, tagsz);
+
+	/* Set entire region as used and unmarked. */
+	gc_btbl_set_map(ve->ve_bt, 0, npages - 1, GC_BTBL_USED);
 
 	return (GC_SUCC);
 }
@@ -145,6 +160,9 @@ gc_vm_tbl_bt_match(_gc_cap struct gc_vm_ent *ve)
 	uint64_t start, end;
 
 	if (ve->ve_bt == NULL)
+		return (GC_ERROR);
+
+	if (ve->ve_bt->bt_valid == 0)
 		return (GC_ERROR);
 
 	start = gc_cheri_getbase(ve->ve_bt->bt_base);

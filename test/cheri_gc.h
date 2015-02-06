@@ -13,6 +13,7 @@ void	cheri_gc_destroy(struct cheri_object cop);
 #define	CHERI_GC_METHOD_ALLOC_C		1
 #define	CHERI_GC_METHOD_REVOKE_C	2
 #define	CHERI_GC_METHOD_REUSE_C		4
+#define	CHERI_GC_METHOD_STATUS_C	5
 
 /*
  * Sandbox side (libc_cheri side).
@@ -24,6 +25,8 @@ int	cheri_gc_alloc_c(struct cheri_object gc_object,
 int	cheri_gc_revoke_c(struct cheri_object gc_object,
 	    __capability void *ptr);
 int	cheri_gc_reuse_c(struct cheri_object gc_object,
+	    __capability void *ptr);
+int	cheri_gc_status_c(struct cheri_object gc_object,
 	    __capability void *ptr);
 
 #endif /* !_CHERI_GC_H_ */

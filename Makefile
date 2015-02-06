@@ -1,6 +1,6 @@
 .include "cheridefs.mk"
 OBJS=gc.o gc_collect.o gc_scan.o gc_stack.o gc_debug.o gc_cheri.o gc_cmdln.o gc_ts.o gc_vm.o
-CFLAGS+=-g
+CFLAGS+=-g -gdwarf-2
 CFLAGS+=-DGC_COLLECT_STATS
 CFLAGS+=-Wall
 

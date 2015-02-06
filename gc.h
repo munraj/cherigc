@@ -369,6 +369,19 @@ void		 gc_btbl_set_map(_gc_cap struct gc_btbl *_btbl,
 int		 gc_set_mark(_gc_cap void *_p);
 
 /*
+ * Used internally by gc_set_mark. Like gc_set_mark, they all
+ * *attempt* to set the mark, and return GC_BTBL_UNMANAGED if
+ * it fails for the particular given bt.
+ *
+ * gc_set_mark_bt is the main wrapper.
+ * gc_set_mark_big assumes the SMALL flag is not set.
+ * gc_set_mark_small assumes the SMALL flag is set.
+ */
+int		 gc_set_mark_bt(_gc_cap void *_p, _gc_cap struct gc_btbl *_bt);
+int		 gc_set_mark_big(_gc_cap void *_p, _gc_cap struct gc_btbl *_bt);
+int		 gc_set_mark_small(_gc_cap void *_p, _gc_cap struct gc_btbl *_bt);
+
+/*
  * Finds the map index for a given object.
  * Returns non-zero iff the block is not managed by this table,
  * or the table is invalid.

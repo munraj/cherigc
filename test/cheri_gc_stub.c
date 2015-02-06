@@ -34,3 +34,12 @@ cheri_gc_reuse_c(struct cheri_object gc_object,
 
 	return (cheri_invoke(gc_object, cheri_gc_methodnum_reuse, 0, ptr));
 }
+
+register_t cheri_gc_methodnum_status = CHERI_GC_METHOD_STATUS_C;
+int
+cheri_gc_status_c(struct cheri_object gc_object,
+    __capability void *ptr)
+{
+
+	return (cheri_invoke(gc_object, cheri_gc_methodnum_status, 0, ptr));
+}
