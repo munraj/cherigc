@@ -29,7 +29,7 @@ struct gc_vm_ent {
 
 /*
  * How much memory to allocate to vt_bt_hp (aka max total size of
- * block table map and tag bitmaps.
+ * block table map and tag bitmaps).
  */
 #define	GC_BT_HP_SZ	1048576
 

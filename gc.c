@@ -171,7 +171,7 @@ gc_alloc_btbl(_gc_cap struct gc_btbl *btbl, size_t slotsz, size_t nslots,
 	memset((void *)btbl, 0, sizeof(struct gc_btbl));
 
 	memsz = slotsz * nslots;
-	mapsz = (nslots + (2 - 1)) / 2;
+	mapsz = nslots / 2;
 	npages = memsz / GC_PAGESZ;
 	tagsz = npages * sizeof(*btbl->bt_tags);
 
