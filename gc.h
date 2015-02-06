@@ -437,6 +437,24 @@ int		 gc_get_obj(_gc_cap void *_p,
 		    _gc_cap struct gc_blk * _gc_cap *_out_blk,
 		    _gc_cap size_t *_out_sml_indx);
 
+/* Like gc_set_mark_*. */
+int		 gc_get_obj_bt(_gc_cap void *ptr,
+		    _gc_cap struct gc_btbl *bt,
+		    _gc_cap void * _gc_cap *out_ptr,
+		    _gc_cap size_t *out_big_indx,
+		    _gc_cap struct gc_blk * _gc_cap *out_blk,
+		    _gc_cap size_t *out_sml_indx);
+int		 gc_get_obj_small(_gc_cap void *ptr,
+		    _gc_cap struct gc_btbl *bt,
+		    _gc_cap void * _gc_cap *out_ptr,
+		    _gc_cap size_t *out_big_indx,
+		    _gc_cap struct gc_blk * _gc_cap *out_blk,
+		    _gc_cap size_t *out_sml_indx);
+int		 gc_get_obj_big(_gc_cap void *ptr,
+		    _gc_cap struct gc_btbl *bt,
+		    _gc_cap void * _gc_cap *out_ptr,
+		    _gc_cap size_t *out_big_indx);
+
 /* Managed by GC, in use, but already marked. */
 #define GC_INVALID_BTBL		0x1000000F	/* invalid block table */
 #define GC_TOO_SMALL		5	/* size too small */

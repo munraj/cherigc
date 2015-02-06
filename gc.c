@@ -413,7 +413,7 @@ gc_set_mark_big(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 	uint8_t byte, type;
 
 	rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
-	gc_debug("gc_set_mark: big rc: %d, type: %d", rc, type);
+	gc_debug("gc_set_mark: big rc: %d, type: 0x%x", rc, type);
 	if (rc != 0)
 		return (GC_BTBL_UNMANAGED);
 	else if (gc_ty_is_revoked(type))
@@ -530,7 +530,7 @@ gc_get_btbl_indx(_gc_cap struct gc_btbl *btbl, size_t *out_indx,
 	uintptr_t ibase;
 	size_t len;
 
-	iptr = (uintptr_t)ptr;
+	iptr = (uintptr_t)gc_cheri_getbase(ptr);
 	ibase = (uintptr_t)gc_cheri_getbase(btbl->bt_base);
 	len = gc_cheri_getlen(btbl->bt_base);
 
@@ -813,9 +813,57 @@ gc_alloc_internal(size_t sz)
 }
 
 int
-gc_get_obj(_gc_cap void *ptr,
+gc_get_obj_big(_gc_cap void *ptr,
+    _gc_cap struct gc_btbl *bt,
     _gc_cap void * _gc_cap *out_ptr,
-    _gc_cap struct gc_btbl * _gc_cap *out_btbl,
+    _gc_cap size_t *out_big_indx)
+{
+	int rc;
+	void *base;
+	size_t indx, len, i, j;
+	uint8_t byte, type, jtype;
+
+	rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
+	if (out_big_indx != NULL)
+		*out_big_indx = indx;
+	if (rc != 0)
+		return (GC_BTBL_UNMANAGED);
+
+	base = (char *)gc_cheri_getbase(bt->bt_base) + indx * GC_BIGSZ;
+	len = GC_BIGSZ;
+	if (gc_ty_is_free(type)) {
+		*out_ptr = gc_cheri_ptr(base, len);
+		return (type);
+	} else if (gc_ty_is_used(type) || gc_ty_is_marked(type)) {
+		/* Determine length of big object. */
+		indx++;
+		for (i = GC_BTBL_MAPINDX(indx);
+		    i < bt->bt_nslots / 2; i++) {
+			byte = bt->bt_map[i];
+			for (j = (i == GC_BTBL_MAPINDX(indx)) ? indx % 2 : 0;
+			    j < 2; j++) {
+				jtype = GC_BTBL_GETTYPE(byte, j);
+				if (gc_ty_is_cont(jtype))
+					len += GC_BIGSZ;
+				else {
+					*out_ptr =
+					    gc_cheri_ptr(base, len);
+					return (type);
+				}
+			}
+		}
+		/* Reached end of table. */
+		*out_ptr = gc_cheri_ptr(base, len);
+		return (type);
+	}
+	GC_NOTREACHABLE_ERROR();
+	return (-1);
+}
+
+int
+gc_get_obj_small(_gc_cap void *ptr,
+    _gc_cap struct gc_btbl *bt,
+    _gc_cap void * _gc_cap *out_ptr,
     _gc_cap size_t *out_big_indx,
     _gc_cap struct gc_blk * _gc_cap *out_blk,
     _gc_cap size_t *out_sml_indx)
@@ -823,16 +871,9 @@ gc_get_obj(_gc_cap void *ptr,
 	int rc;
 	_gc_cap struct gc_blk *blk;
 	void *base;
-	_gc_cap struct gc_btbl *bt;
-	size_t indx, big_indx, len, i, j;
-	uint8_t byte, type, jtype;
+	size_t indx, big_indx, len;
 
-	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
-	/* Try small region */
-	bt = &gc_state_c->gs_btbl_small;
 	rc = gc_get_block(bt, &blk, &indx, &big_indx, ptr);
-	if (out_btbl != NULL)
-		*out_btbl = bt;
 	if (out_big_indx != NULL)
 		*out_big_indx = big_indx;
 	if (out_blk != NULL)
@@ -841,47 +882,7 @@ gc_get_obj(_gc_cap void *ptr,
 		*out_sml_indx = indx;
 
 	if (gc_ty_is_unmanaged(rc)) {
-		/* Try big region. */
-		bt = &gc_state_c->gs_btbl_big;
-		rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
-		if (out_btbl != NULL)
-			*out_btbl = bt;
-		if (out_big_indx != NULL)
-			*out_big_indx = indx;
-		if (out_blk != NULL)
-			*out_blk = NULL;
-		if (out_sml_indx != NULL)
-			*out_sml_indx = 0;
-		if (rc != 0)
-			return (GC_BTBL_UNMANAGED);
-		base = (char *)gc_cheri_getbase(bt->bt_base) + indx * GC_BIGSZ;
-		len = GC_BIGSZ;
-		if (gc_ty_is_free(type)) {
-			*out_ptr = gc_cheri_ptr(base, len);
-			return (type);
-		} else if (gc_ty_is_used(type) || gc_ty_is_marked(type)) {
-			/* Determine length of big object. */
-			indx++;
-			for (i = GC_BTBL_MAPINDX(indx);
-			    i < bt->bt_nslots / 2; i++) {
-				byte = bt->bt_map[i];
-				for (j = (i == GC_BTBL_MAPINDX(indx)) ? indx % 2 : 0;
-				    j < 2; j++) {
-					jtype = GC_BTBL_GETTYPE(byte, j);
-					if (gc_ty_is_cont(jtype))
-						len += GC_BIGSZ;
-					else {
-						*out_ptr =
-						    gc_cheri_ptr(base, len);
-						return (type);
-					}
-				}
-			}
-			/* Reached end of table. */
-			*out_ptr = gc_cheri_ptr(base, len);
-			return (type);
-		}
-		/* NOTREACHABLE; fall through */
+		return (GC_BTBL_UNMANAGED);
 	} else if (gc_ty_is_free(rc)) {
 		return (rc); 
 	} else if (gc_ty_is_used(rc)) {
@@ -896,6 +897,74 @@ gc_get_obj(_gc_cap void *ptr,
 	}
 	GC_NOTREACHABLE_ERROR();
 	return (-1);
+}
+
+int
+gc_get_obj_bt(_gc_cap void *ptr,
+    _gc_cap struct gc_btbl *bt,
+    _gc_cap void * _gc_cap *out_ptr,
+    _gc_cap size_t *out_big_indx,
+    _gc_cap struct gc_blk * _gc_cap *out_blk,
+    _gc_cap size_t *out_sml_indx)
+{
+
+	if (bt->bt_flags & GC_BTBL_FLAG_SMALL)
+		return (gc_get_obj_small(ptr, bt, out_ptr, out_big_indx,
+		    out_blk, out_sml_indx));
+	else
+		return (gc_get_obj_big(ptr, bt, out_ptr, out_big_indx));
+}
+
+int
+gc_get_obj(_gc_cap void *ptr,
+    _gc_cap void * _gc_cap *out_ptr,
+    _gc_cap struct gc_btbl * _gc_cap *out_btbl,
+    _gc_cap size_t *out_big_indx,
+    _gc_cap struct gc_blk * _gc_cap *out_blk,
+    _gc_cap size_t *out_sml_indx)
+{
+	int rc;
+	_gc_cap struct gc_vm_ent *ve;
+	uint64_t base;
+
+	gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
+	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
+
+	if (out_btbl != NULL)
+		*out_btbl = NULL;
+
+	/* Try small region. */
+	rc = gc_get_obj_small(ptr, &gc_state_c->gs_btbl_small,
+	    out_ptr, out_big_indx, out_blk, out_sml_indx);
+	if (out_btbl != NULL)
+		*out_btbl = &gc_state_c->gs_btbl_small;
+	if (!gc_ty_is_unmanaged(rc))
+		return (rc);
+
+	/* Try big region. */
+	rc = gc_get_obj_big(ptr, &gc_state_c->gs_btbl_big,
+	    out_ptr, out_big_indx);
+	if (out_btbl != NULL)
+		*out_btbl = &gc_state_c->gs_btbl_big;
+	if (!gc_ty_is_unmanaged(rc))
+		return (rc);
+
+	/*
+	 * In neither; must be unmanaged by the GC, but potentially
+	 * trackable in the VM mappings, so we try those.
+	 */
+	gc_debug("gc_get_obj: pointer %s is in neither big nor small region", gc_cap_str(ptr));
+	base = gc_cheri_getbase(ptr);
+	ve = gc_vm_tbl_find(&gc_state_c->gs_vt, base);
+	if (ve == NULL)
+		return (GC_BTBL_UNMANAGED);
+	gc_debug("note: found a btbl for it: %s", gc_cap_str(ve->ve_bt));
+	rc = gc_get_obj_bt(ptr, ve->ve_bt, out_ptr, out_big_indx,
+	    out_blk, out_sml_indx);
+	if (out_btbl != NULL)
+		*out_btbl = ve->ve_bt;
+	return (rc);
+
 }
 
 struct gc_tags

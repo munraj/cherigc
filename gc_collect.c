@@ -283,11 +283,15 @@ gc_resume_marking(void)
 				gc_debug("warning: refusing to scan unmanaged object for which VM info could not be obtained.");
 				return;
 			}
-			else if (!(ve->ve_prot & GC_VE_PROT_RD)) {
-				gc_debug("warning: refusing to scan VM object without PROT_RD.");
-				return;
-			}
-			/* XXX: what about PROT_WR? */
+			/*
+			 * Note: we don't do a read/write protection
+			 * check here, as individual pages of the object might
+			 * might have different permissions (e.g., the
+			 * sandbox memory, which contains non-accessible
+			 * guard pages.
+			 * Instead, gc_mark_children does this check on
+			 * a page-by-page basis.
+			 */
 			gc_debug("VM mapping for unmanaged object: "
 			    GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
 			/*
