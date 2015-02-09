@@ -413,7 +413,6 @@ gc_set_mark_big(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 	uint8_t byte, type;
 
 	rc = gc_get_btbl_indx(bt, &indx, &type, ptr);
-	gc_debug("gc_set_mark: big rc: %d, type: 0x%x", rc, type);
 	if (rc != 0)
 		return (GC_BTBL_UNMANAGED);
 	else if (gc_ty_is_revoked(type))
@@ -451,7 +450,6 @@ gc_set_mark_small(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 
 	rc = gc_get_block(bt, &blk, &indx, NULL, ptr);
 	type = rc;
-	gc_debug("gc_set_mark: small rc: %d, indx=%zu", rc, indx);
 	if (gc_ty_is_unmanaged(rc)) {
 		return (GC_BTBL_UNMANAGED);
 	} else if (gc_ty_is_free(type)) {
@@ -494,7 +492,6 @@ gc_set_mark(_gc_cap void *ptr)
 	_gc_cap struct gc_vm_ent *ve;
 	uint64_t base;
 
-	gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 
 	/* Try small region. */
@@ -829,6 +826,8 @@ gc_get_obj_big(_gc_cap void *ptr,
 	if (rc != 0)
 		return (GC_BTBL_UNMANAGED);
 
+	gc_debug("gc_get_obj_big: indx is %zu\n", indx);
+
 	base = (char *)gc_cheri_getbase(bt->bt_base) + indx * GC_BIGSZ;
 	len = GC_BIGSZ;
 	if (gc_ty_is_free(type)) {
@@ -881,18 +880,21 @@ gc_get_obj_small(_gc_cap void *ptr,
 	if (out_sml_indx != NULL)
 		*out_sml_indx = indx;
 
-	if (gc_ty_is_unmanaged(rc)) {
+	if (gc_ty_is_unmanaged(rc))
 		return (GC_BTBL_UNMANAGED);
-	} else if (gc_ty_is_free(rc)) {
+
+	base = (char *)blk + indx * blk->bk_objsz;
+	len = blk->bk_objsz;
+	if (out_ptr != NULL)
+		*out_ptr = gc_cheri_ptr(base, len);
+
+	if (gc_ty_is_free(rc)) {
 		return (rc); 
 	} else if (gc_ty_is_used(rc)) {
 		if (((blk->bk_free >> indx) & 1) != 0)
 			return (gc_ty_set_free(rc));
 		if (((blk->bk_marks >> indx) & 1) != 0)
 			return (gc_ty_set_marked(rc));
-		base = (char *)blk + indx * blk->bk_objsz;
-		len = blk->bk_objsz;
-		*out_ptr = gc_cheri_ptr(base, len);
 		return (rc);
 	}
 	GC_NOTREACHABLE_ERROR();
@@ -908,6 +910,7 @@ gc_get_obj_bt(_gc_cap void *ptr,
     _gc_cap size_t *out_sml_indx)
 {
 
+	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 	if (bt->bt_flags & GC_BTBL_FLAG_SMALL)
 		return (gc_get_obj_small(ptr, bt, out_ptr, out_big_indx,
 		    out_blk, out_sml_indx));
@@ -927,7 +930,6 @@ gc_get_obj(_gc_cap void *ptr,
 	_gc_cap struct gc_vm_ent *ve;
 	uint64_t base;
 
-	gc_debug("gc_set_mark: finding object %s", gc_cap_str(ptr));
 	ptr = gc_cheri_setoffset(ptr, 0); /* sanitize */
 
 	if (out_btbl != NULL)
@@ -949,21 +951,27 @@ gc_get_obj(_gc_cap void *ptr,
 	if (!gc_ty_is_unmanaged(rc))
 		return (rc);
 
+	gc_debug("gc_get_obj: pointer %s is in neither big nor small region", gc_cap_str(ptr));
+	/* Don't do this because not sure of size of object. */
 	/*
 	 * In neither; must be unmanaged by the GC, but potentially
 	 * trackable in the VM mappings, so we try those.
 	 */
-	gc_debug("gc_get_obj: pointer %s is in neither big nor small region", gc_cap_str(ptr));
+	/*
 	base = gc_cheri_getbase(ptr);
 	ve = gc_vm_tbl_find(&gc_state_c->gs_vt, base);
 	if (ve == NULL)
 		return (GC_BTBL_UNMANAGED);
+	gc_debug("note: found a VM ent for it: " GC_DEBUG_VE_FMT, GC_DEBUG_VE_PRI(ve));
 	gc_debug("note: found a btbl for it: %s", gc_cap_str(ve->ve_bt));
 	rc = gc_get_obj_bt(ptr, ve->ve_bt, out_ptr, out_big_indx,
 	    out_blk, out_sml_indx);
 	if (out_btbl != NULL)
 		*out_btbl = ve->ve_bt;
-	return (rc);
+	return (rc);*/
+	(void)ve;
+	(void)base;
+	return (GC_BTBL_UNMANAGED);
 
 }
 

@@ -103,6 +103,16 @@ test_sb(struct tf_test *thiz)
 	spc->sp_op = OP_INIT;
 	rc = sb_invoke(thiz, &sb, spc);
 	thiz->t_pf("return value from sandbox: %d\n", rc);
+	
+	/* In the sandbox, force p to the stack. */	
+	thiz->t_pf("invoke sandbox\n");
+	spc->sp_op = OP_TRY_USE;
+	printf("note: spc is %s\n", gc_cap_str(spc));
+	rc = sb_invoke(thiz, &sb, spc);
+	thiz->t_pf("return value from sandbox: %d\n", rc);
+	/* Check stack. */
+	struct gc_tags tg1 = gc_get_page_tags(gc_cheri_ptr(0x160c0c000ULL, 0x1000));
+	printf("lo: 0x%llx hi: 0x%llx\n", tg1.tg_lo, tg1.tg_hi);
 
 	/* Do a collection. */
 	gc_extern_collect();

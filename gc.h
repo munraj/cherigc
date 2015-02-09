@@ -41,9 +41,9 @@ struct gc_blk {
  * in the gc_blk header itself. For not SMALL btbls, the bitmap
  * determines the individual mark status of slotsz-sized objects.
  *
- * As described below, the "bitmap" is actually a two-bit map, so that
- * each byte contains 4 entries. The bitmap will typically be of size
- * GC_PAGESZ, giving GC_PAGESZ*4 entries.
+ * As described below, the "bitmap" is actually a four-bit map, so that
+ * each byte contains 2 entries. The bitmap will typically be of size
+ * GC_PAGESZ, giving GC_PAGESZ*2 entries.
  *
  * Currently gc_state maintains only two btbls, one for small objects
  * (i.e. with block headers) and one for large objects. In the future,
@@ -52,11 +52,11 @@ struct gc_blk {
  * because the number of btbls needed is roughly linear in the
  * number of different virtual memory mappings: each contiguous paged
  * area can be managed by a single btbl (roughly speaking; it depends
- * on the slotsz, because nslots is usually fixed to GC_PAGESZ*4).
+ * on the slotsz, because nslots is usually fixed to GC_PAGESZ*2).
  * Typically it might be expected that each btbl tracks 1-64MB of
  * memory, giving an overhead of 0.39-0.006%.
  *
- * The btbl stores information for slotsz*nslots*4 many bytes of
+ * The btbl stores information for slotsz*nslots many bytes of
  * data.
  *
  * Note that the tags are indexed by page, whereas the map is

@@ -38,7 +38,7 @@ gc_cap_str(_gc_cap void *ptr)
 	if (ptr == NULL)
 		snprintf(s, sizeof(s), "[null cap]");
 	else {
-		snprintf(s, sizeof(s), "[b=%p o=%zu l=0x%zx t=%d s=%d]",
+		snprintf(s, sizeof(s), "[b=%p o=0x%zx l=0x%zx t=%d s=%d]",
 		    (void*)gc_cheri_getbase(ptr),
 		    (size_t)gc_cheri_getoffset(ptr),
 		    (size_t)gc_cheri_getlen(ptr),

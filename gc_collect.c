@@ -85,7 +85,6 @@ gc_push_root(_gc_cap void * _gc_cap *rootp)
 	    gc_is_unlimited(*rootp)) /* don't push all of memory */
 		return (0);
 	rc = gc_set_mark(*rootp);
-	gc_debug("gc_set_mark: rc=%d\n", rc);
 	if (gc_ty_is_free(rc)) {
 		/*
 		 * Root should not be pointing to this region;
@@ -159,26 +158,30 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	_gc_cap struct gc_btbl *bt;
 	int rc, error;
 
-	/* Optimization. */
+	/* Avoid outputting debug messages for zero tags. */
 	if (tags == 0)
 		return;
 
-	gc_debug("== gc_scan_tags_64: parent: %s, tags 0x%llx", gc_cap_str(parent), tags);
+	gc_debug("parent: %s, tags 0x%llx", gc_cap_str(parent), tags);
 	gc_debug_indent(1);
 	for (child_ptr = parent; tags; tags >>= 1, child_ptr++) {
 		if (tags & 1) {
 			raw_obj = *child_ptr;
 			raw_obj = gc_unseal(raw_obj);
 			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
-			    NULL, gc_cap_addr(&bt), NULL, NULL);
+			    gc_cap_addr(&bt), NULL, NULL, NULL);
 			/* Assert: child has tag bit set! */
-			gc_debug("child: %s: rc=%d", gc_cap_str(raw_obj), rc);
 			if (gc_ty_is_unmanaged(rc)) {
-				/* XXX: "Mark" this. */
-				error = gc_stack_push(
-				    gc_state_c->gs_mark_stack_c, raw_obj);
-				if (error != 0)
-					gc_error("mark stack overflow");
+				/* Mark this object and/or check for already marked. */
+				obj = raw_obj;
+				rc = gc_set_mark(obj);
+				/* XXX: TODO: if revoked, if free, etc... */
+				if (!gc_ty_is_marked(rc)) {
+					error = gc_stack_push(
+					    gc_state_c->gs_mark_stack_c, raw_obj);
+					if (error != 0)
+						gc_error("mark stack overflow");
+				}
 			} else if (gc_ty_is_revoked(rc)) {
 				/* Do something? */
 			} else if (gc_ty_is_free(rc)) {
@@ -189,7 +192,7 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 				 * gc_set_mark_bt is an optimization;
 				 * could call gc_set_mark.
 				 */
-				rc = gc_set_mark_bt(bt, obj);
+				rc = gc_set_mark_bt(obj, bt);
 				/* XXX: assert rc == prev rc? */
 				error = gc_stack_push(
 				    gc_state_c->gs_mark_stack_c, obj);
@@ -255,6 +258,7 @@ gc_resume_marking(void)
 		    gc_cheri_ptr(&sml_indx, sizeof(sml_indx)));
 		if (gc_ty_is_unmanaged(rc)) {
 			gc_debug("warning: unmanaged object: %s", gc_cap_str(obj));
+			obj = gc_cheri_setoffset(obj, 0); /* sanitize */
 			if (GC_ALIGN(gc_cheri_getbase(obj)) == NULL) {
 				gc_debug("warning: popped pointer is near-NULL");
 				return;
