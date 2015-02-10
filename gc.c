@@ -429,6 +429,7 @@ gc_set_mark_big(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 #ifdef GC_COLLECT_STATS
 		if (bt->bt_flags & GC_BTBL_FLAG_MANAGED) {
 			gc_state_c->gs_nmark++;
+			gc_debug("big set mark increase nmark %s", gc_cap_str(ptr));
 			gc_get_obj(ptr, gc_cheri_ptr(&ptr, sizeof(_gc_cap void *)), NULL, NULL, NULL, NULL);
 			gc_state_c->gs_nmarkbytes += gc_cheri_getlen(ptr);
 		}
@@ -450,9 +451,9 @@ gc_set_mark_small(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 
 	rc = gc_get_block(bt, &blk, &indx, NULL, ptr);
 	type = rc;
-	if (gc_ty_is_unmanaged(rc)) {
+	if (gc_ty_is_unmanaged(rc))
 		return (GC_BTBL_UNMANAGED);
-	} else if (gc_ty_is_free(type)) {
+	else if (gc_ty_is_free(type)) {
 		/* Entire block is free. */
 		return (type);
 	} else if (gc_ty_is_used(type)) {
@@ -463,8 +464,10 @@ gc_set_mark_small(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 			return (gc_ty_set_marked(type)); /* already marked */
 		blk->bk_marks |= 1ULL << indx;
 #ifdef GC_COLLECT_STATS
-		if (bt->bt_flags & GC_BTBL_FLAG_MANAGED) {
+		if (bt->bt_flags & GC_BTBL_FLAG_MANAGED &&
+		    indx != 0 /* ignore block header */) {
 			gc_state_c->gs_nmark++;
+			gc_debug("small set mark increase nmark %s", gc_cap_str(ptr));
 			gc_state_c->gs_nmarkbytes += blk->bk_objsz;
 		}
 #endif
@@ -508,12 +511,12 @@ gc_set_mark(_gc_cap void *ptr)
 	 * In neither; must be unmanaged by the GC, but potentially
 	 * trackable in the VM mappings, so we try those.
 	 */
-	gc_debug("note: pointer %s is in neither big nor small region", gc_cap_str(ptr));
+	//gc_debug("note: pointer %s is in neither big nor small region", gc_cap_str(ptr));
 	base = gc_cheri_getbase(ptr);
 	ve = gc_vm_tbl_find(&gc_state_c->gs_vt, base);
 	if (ve == NULL)
 		return (GC_BTBL_UNMANAGED);
-	gc_debug("note: found a btbl for it: %s", gc_cap_str(ve->ve_bt));
+	//gc_debug("note: found a btbl for it: %s", gc_cap_str(ve->ve_bt));
 	return (gc_set_mark_bt(ptr, ve->ve_bt));
 }
 
