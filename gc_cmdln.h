@@ -30,5 +30,7 @@ gc_cmd_fn	gc_cmd_info;
 gc_cmd_fn	gc_cmd_uptags;
 gc_cmd_fn	gc_cmd_quit;
 gc_cmd_fn	gc_cmd_vm;
+gc_cmd_fn	gc_cmd_revoke;
+gc_cmd_fn	gc_cmd_gc;
 
 #endif /* !_GC_CMDLN_H_ */

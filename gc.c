@@ -615,7 +615,7 @@ gc_ins_blk(_gc_cap struct gc_blk *blk, _gc_cap struct gc_blk **list)
 void
 gc_extern_collect(void)
 {
-	size_t len; /* XXX: first var */
+	/*size_t len;*/ /* XXX: first var */
 	_gc_cap void *c16;
 
 	/*len = (uintptr_t)(void *)gc_state_c->gs_stack_bottom -
@@ -636,7 +636,7 @@ gc_extern_collect(void)
 _gc_cap void *
 gc_malloc(size_t sz)
 {
-	size_t len; /* XXX: first var */
+	/*size_t len;*/ /* XXX: first var */
 	_gc_cap void *c3;
 	_gc_cap void *c16;
 	/*void *fp;

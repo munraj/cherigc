@@ -9,6 +9,8 @@
 struct gc_cmd	gc_cmds[] = {
 	{.c_cmd = (const char *[]){"cont", "c", "", NULL}, .c_fn = &gc_cmd_cont,
 	 .c_desc = "Continue running"},
+	{.c_cmd = (const char *[]){"gc", NULL}, .c_fn = &gc_cmd_gc,
+	 .c_desc = "Force a full collection"},
 	{.c_cmd = (const char *[]){"help", "h", NULL}, .c_fn = &gc_cmd_help,
 	 .c_desc = "Display help"},
 	{.c_cmd = (const char *[]){"info", "i", NULL}, .c_fn = &gc_cmd_info,
@@ -19,6 +21,8 @@ struct gc_cmd	gc_cmds[] = {
 	 .c_desc = "Step one \"logical\" step"},
 	{.c_cmd = (const char *[]){"quit", "q", NULL}, .c_fn = &gc_cmd_quit,
 	 .c_desc = "Quit"},
+	{.c_cmd = (const char *[]){"revoke", NULL}, .c_fn = &gc_cmd_revoke,
+	 .c_desc = "Revoke access to an object"},
 	{.c_cmd = (const char *[]){"stat", "s", NULL}, .c_fn = &gc_cmd_stat,
 	 .c_desc = "Display statistics"},
 	{.c_cmd = (const char *[]){"uptags", "ut", NULL}, .c_fn = &gc_cmd_uptags,
@@ -244,6 +248,42 @@ gc_cmd_vm(struct gc_cmd *cmd, char **arg)
 {
 
 	gc_print_vm_tbl(&gc_state_c->gs_vt);
+	return (0);
+}
+
+int
+gc_cmd_gc(struct gc_cmd *cmd, char **arg)
+{
+
+	/* Refuse to do nested collections. */
+	if (gc_state_c->gs_mark_state != GC_MS_NONE) {
+		printf("Refusing to run nested collection.\n");
+		return (1);
+	}
+
+	gc_extern_collect();
+	return (0);
+}
+
+int
+gc_cmd_revoke(struct gc_cmd *cmd, char **arg)
+{
+	uint64_t addr;
+	_gc_cap void *p;
+	int rc;
+
+	if (arg[1] == NULL)
+	{
+		printf("revoke: <addr>\n");
+		return (0);
+	}
+
+	addr = strtoull(arg[1], NULL, 0);
+	p = gc_cheri_ptr(GC_ALIGN(addr), 0);
+	printf("Attempting to revoke %s\n", gc_cap_str(p));
+	rc = gc_revoke(p);
+	printf("Return code from gc_revoke: %d\n", rc);
+
 	return (0);
 }
 
