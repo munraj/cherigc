@@ -100,6 +100,10 @@ gc_push_root(_gc_cap void * _gc_cap *rootp)
 			gc_error("mark stack overflow");
 			return (1);
 		}
+		if (gc_ty_is_revoked(rc)) {
+			/* But also invalidate, so we can scan children. */
+			*rootp = gc_cheri_cleartag(*rootp);
+		}
 	}
 
 	return (0);
@@ -169,13 +173,12 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 	for (child_ptr = parent; tags; tags >>= 1, child_ptr++) {
 		if (tags & 1) {
 			raw_obj = *child_ptr;
-			raw_obj = gc_unseal(raw_obj);
-			rc = gc_get_obj(raw_obj, gc_cap_addr(&obj),
+			rc = gc_get_obj(gc_unseal(raw_obj), gc_cap_addr(&obj),
 			    gc_cap_addr(&bt), NULL, NULL, NULL);
 			/* Assert: child has tag bit set! */
 			if (gc_ty_is_unmanaged(rc)) {
 				/* Mark this object and/or check for already marked. */
-				obj = raw_obj;
+				obj = gc_unseal(raw_obj);
 				rc = gc_set_mark(obj);
 				/* XXX: TODO: if revoked, if free, etc... */
 				if (!gc_ty_is_marked(rc)) {
@@ -184,8 +187,6 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 					if (error != 0)
 						gc_error("mark stack overflow");
 				}
-			} else if (gc_ty_is_revoked(rc)) {
-				/* Do something? */
 			} else if (gc_ty_is_free(rc)) {
 				/* Immediately invalidate (?). */
 				*child_ptr = gc_cheri_cleartag(raw_obj);
@@ -194,6 +195,10 @@ gc_scan_tags_64(_gc_cap void *parent, uint64_t tags)
 				 * gc_set_mark_bt is an optimization;
 				 * could call gc_set_mark.
 				 */
+				if (gc_ty_is_revoked(rc)) {
+					/* Immediately invalidate (?), but still push. */
+					*child_ptr = gc_cheri_cleartag(raw_obj);
+				}
 				rc = gc_set_mark_bt(obj, bt);
 				/* XXX: assert rc == prev rc? */
 				error = gc_stack_push(

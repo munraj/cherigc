@@ -122,9 +122,9 @@ test_sb(struct tf_test *thiz)
 	//gc_extern_collect();
 	
 	// Revoke a cap.
-	//gc_revoke(cap);
-	//gc_extern_collect();
-	gc_cmdln();
+	rc = gc_revoke(cap);
+	thiz->t_pf("revoke rc: %d\n", rc);
+	gc_extern_collect();
 	
 	thiz->t_pf("invoke sandbox\n");
 	spc->sp_op = OP_TRY_USE;

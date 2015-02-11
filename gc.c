@@ -639,9 +639,9 @@ gc_malloc(size_t sz)
 	size_t len; /* XXX: first var */
 	_gc_cap void *c3;
 	_gc_cap void *c16;
-	void *fp;
+	/*void *fp;
 
-	fp = __builtin_frame_address(0);
+	fp = __builtin_frame_address(0);*/
 
 	/*len = (uintptr_t)gc_state_c->gs_stack_bottom -
 	    (uintptr_t)GC_ALIGN(fp);

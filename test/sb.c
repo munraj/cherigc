@@ -162,7 +162,7 @@ test_ll(struct sb_param *sp)
 	nsz = 201;
 	junksz = 200;
 	junkfill = 0x0BADDEAD;
-	junkn = 20;
+	junkn = 2;
 
 	if (nsz < sizeof(struct node))
 		nsz = sizeof(struct node);
