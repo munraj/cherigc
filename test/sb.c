@@ -11,10 +11,47 @@
 int	 printf(const char *, ...);
 int	 sprintf(char *, const char *, ...);
 char	*strcpy(char *, const char *);
+#define	NULL		((void *)0)
 
 int	 test_ll(struct sb_param *sp);
 
-static void *p;
+struct node {
+	struct node	*p;
+	struct node	*n;
+	uint8_t			 v[1];
+};
+static struct node *hd;
+static int nmax;
+static size_t nsz;
+#define PRINTF		printf
+#define MALLOC(sz)	GC_MALLOC(sp->sp_gc, (sz))
+#define ASSERT(cond, arg)					\
+	if (!(cond)) {					\
+		PRINTF("Assert failed: `%s':", #cond);	\
+		PRINTF arg;				\
+		PRINTF(" (line %d)\n", __LINE__);	\
+		return (-1);				\
+	}
+#define	LLHASH(i,j,t,p) (				\
+	    (uint8_t)(((i)+(j)+(t)+(p))>>(j))		\
+	)
+
+#define	ALLOCATE_JUNK do {				\
+	    junk = MALLOC(junksz);			\
+	    ASSERT(junk != NULL, (""));			\
+	    for (tmp = 0; tmp < junksz / 4; tmp++)	\
+		junk[tmp] = junkfill;			\
+	} while (0)
+
+unsigned long long
+CTOPTR(void *p)
+{
+	unsigned long long rp;
+
+	rp = cheri_getbase(p) + cheri_getoffset(p);
+	return (rp);
+}
+
 
 const char *
 pstr(void *p)
@@ -36,10 +73,33 @@ pstr(void *p)
 int
 try_use(struct sb_param *sp)
 {
+	struct node *p, *t;
+	int i, j;
+	uint8_t h;
 
-	printf("&p is %s\n", pstr(&p));
+	/*printf("&p is %s\n", pstr(&p));
 	printf("p is %s\n", pstr(p));
-	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));
+	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));*/
+
+	/* Check LL. */
+	p = NULL;
+	t = hd;
+	for (i = 0; i < nmax; i++) {
+		PRINTF("checking linked list node %d\n", i);
+		ASSERT(t != NULL, (""));
+		PRINTF("current: %llx, actual prev: %llx, stored prev: %llx, stored next: %llx\n",
+		   CTOPTR(t), CTOPTR(p), CTOPTR(t->p), CTOPTR(t->n));
+		ASSERT(t->p == p, (""));
+		for (j = 0; j < nsz - sizeof(struct node); j++) {
+			h = LLHASH(i, j,
+			    (int)(uintptr_t)t, (int)(uintptr_t)t->p);
+			if (t->v[j] != h)
+				PRINTF("position %d: stored hash: 0x%x; actual hash: 0x%x\n", j, t->v[j], h);
+			ASSERT(t->v[j] == h, (""));
+		}
+		p = t;
+		t = t->n;
+	}
 	return (0);
 }
 
@@ -48,10 +108,10 @@ init(struct sb_param *sp)
 {
 	int rc;
 
-	rc = cheri_gc_alloc_c(sp->sp_gc, &p, 500);
+	/*rc = cheri_gc_alloc_c(sp->sp_gc, &p, 500);
 	printf("result: %d\n", rc);
 	printf("p: %s\n", pstr(p));
-	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));
+	printf("p status: %d\n", cheri_gc_status_c(sp->sp_gc, p));*/
 
 	rc = test_ll(sp);
 	return (rc);
@@ -74,16 +134,9 @@ invoke(struct sb_param *sp)
 	}
 }
 
-struct node {
-	struct node	*p;
-	struct node	*n;
-	uint8_t			 v[1];
-};
-
 void *
 GC_MALLOC(struct cheri_object gc, size_t sz)
 {
-#define	NULL		((void *)0)
 	void *p;
 	int rc;
 
@@ -97,41 +150,19 @@ GC_MALLOC(struct cheri_object gc, size_t sz)
 int
 test_ll(struct sb_param *sp)
 {
-#define PRINTF		printf
-#define MALLOC(sz)	GC_MALLOC(sp->sp_gc, (sz))
-#define ASSERT(cond, arg)					\
-	if (!(cond)) {					\
-		PRINTF("Assert failed: `%s':", #cond);	\
-		PRINTF arg;				\
-		PRINTF(" (line %d)\n", __LINE__);	\
-		return (-1);				\
-	}
-
-#define	LLHASH(i,j,t,p) (				\
-	    (uint8_t)(((i)+(j)+(t)+(p))>>(j))		\
-	)
-
-#define	ALLOCATE_JUNK do {				\
-	    junk = MALLOC(junksz);			\
-	    ASSERT(junk != NULL, (""));			\
-	    for (tmp = 0; tmp < junksz / 4; tmp++)	\
-		junk[tmp] = junkfill;			\
-	} while (0)
-
 	struct node **np;
-	struct node *hd, *p, *t;
+	struct node *p, *t;
 	uint32_t *junk;
-	size_t nsz, junksz, tmp;
-	int nmax, i, j, junkn;
+	size_t junksz, tmp;
+	int i, j, junkn;
 	uint32_t junkfill;
-	uint8_t h;
 
 	/* Configurable */
 	nmax = 10;
 	nsz = 201;
 	junksz = 200;
 	junkfill = 0x0BADDEAD;
-	junkn = 3;
+	junkn = 20;
 
 	if (nsz < sizeof(struct node))
 		nsz = sizeof(struct node);
@@ -148,6 +179,12 @@ test_ll(struct sb_param *sp)
 		*np = MALLOC(nsz);
 		t = *np;
 		ASSERT(t != NULL, ("i is %d\n", i));
+
+		if (i == nmax / 2) {
+			PRINTF("** storing special cap %s for later revocation\n", pstr(*np));
+			*sp->sp_cap1 = *np;
+		}
+
 		ALLOCATE_JUNK;
 		ASSERT(t != NULL, (""));
 		ASSERT(cheri_getlen(t) >= nsz, (""));
@@ -162,25 +199,5 @@ test_ll(struct sb_param *sp)
 		ALLOCATE_JUNK;
 	}
 
-	/* Check LL. */
-	p = NULL;
-	t = hd;
-	for (i = 0; i < nmax; i++) {
-		PRINTF("checking linked list node %d\n", i);
-		ASSERT(t != NULL, (""));
-		PRINTF("current: %p, actual prev: %p, stored prev: %p, stored next: %p\n",
-		   (void *)t, (void *)p, (void *)t->p, (void *)t->n);
-		ASSERT(t->p == p, (""));
-		for (j = 0; j < nsz - sizeof(struct node); j++) {
-			h = LLHASH(i, j,
-			    (int)(uintptr_t)t, (int)(uintptr_t)t->p);
-			if (t->v[j] != h)
-				PRINTF("position %d: stored hash: 0x%x; actual hash: 0x%x\n", j, t->v[j], h);
-			ASSERT(t->v[j] == h, (""));
-		}
-		p = t;
-		t = t->n;
-	}
-
-	return (0);
+	return (try_use(sp));
 }

@@ -78,6 +78,7 @@ test_sb(struct tf_test *thiz)
 	struct sb_param sp;
 	__capability struct sb_param *spc;
 	int rc;
+	__capability void *cap;
 
 	thiz->t_pf("create sandbox\n");
 	rc = sb_init(thiz, &sb, SB_BIN, SB_HPSZ);
@@ -97,6 +98,8 @@ test_sb(struct tf_test *thiz)
 	thiz->t_pf("sandbox codecap: %s\n", gc_cap_str(sb.sb_op->sbo_cheri_object_invoke.co_codecap));
 	thiz->t_pf("sandbox datacap: %s\n", gc_cap_str(sb.sb_op->sbo_cheri_object_invoke.co_datacap));
 
+	spc->sp_cap1 = cheri_ptrperm(&cap, sizeof(cap), CHERI_PERM_STORE_CAP);
+
 	/* XXX: assume GC initialized. */
 	
 	thiz->t_pf("invoke sandbox\n");
@@ -110,18 +113,25 @@ test_sb(struct tf_test *thiz)
 	printf("note: spc is %s\n", gc_cap_str(spc));
 	rc = sb_invoke(thiz, &sb, spc);
 	thiz->t_pf("return value from sandbox: %d\n", rc);
+	thiz->t_pf("cap: %s\n", gc_cap_str(cap));
 	/* Check stack. */
 	//struct gc_tags tg1 = gc_get_page_tags(gc_cheri_ptr(0x160c0c000ULL, 0x1000));
 	//printf("lo: 0x%llx hi: 0x%llx\n", tg1.tg_lo, tg1.tg_hi);
 
 	/* Do a collection. */
-	/*gc_extern_collect();
+	//gc_extern_collect();
+	
+	// Revoke a cap.
+	//gc_revoke(cap);
+	//gc_extern_collect();
+	gc_cmdln();
 	
 	thiz->t_pf("invoke sandbox\n");
 	spc->sp_op = OP_TRY_USE;
 	printf("note: spc is %s\n", gc_cap_str(spc));
 	rc = sb_invoke(thiz, &sb, spc);
-	thiz->t_pf("return value from sandbox: %d\n", rc);*/
+	thiz->t_pf("return value from sandbox: %d\n", rc);
+	thiz->t_pf("cap: %s\n", gc_cap_str(cap));
 
 	return (0);
 }

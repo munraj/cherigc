@@ -226,9 +226,9 @@ gc_init(void)
 	gc_state_c->gs_mark_state = GC_MS_NONE;
 
 	/* 4096*16384 => 64MB heap. */
-	/* XXX: 4096*10 => 40kB heap. */
+	/* XXX: 4096*6 => 20kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_small,
-	    GC_PAGESZ, 10/*16384*/, GC_BTBL_FLAG_SMALL | GC_BTBL_FLAG_MANAGED);
+	    GC_PAGESZ, 1/*16384*/, GC_BTBL_FLAG_SMALL | GC_BTBL_FLAG_MANAGED);
 	/* 1024*16384 => 16MB heap. */
 	/* XXX: 1024*100 => 100kB heap. */
 	gc_alloc_btbl((_gc_cap struct gc_btbl *)&gc_state_c->gs_btbl_big,
@@ -458,6 +458,9 @@ gc_set_mark_small(_gc_cap void *ptr, _gc_cap struct gc_btbl *bt)
 		return (type);
 	} else if (gc_ty_is_used(type)) {
 		/* Construction of emulated btbl type. */
+		if (((blk->bk_revoked >> indx) & 1) != 0)
+			return (gc_ty_set_revoked(type)); /* revoked; don't mark (???) */
+
 		if (((blk->bk_free >> indx) & 1) != 0)
 			return (gc_ty_set_free(type)); /* free; don't mark */
 		if (((blk->bk_marks >> indx) & 1) != 0)
@@ -615,9 +618,11 @@ gc_extern_collect(void)
 	size_t len; /* XXX: first var */
 	_gc_cap void *c16;
 
-	len = (uintptr_t)gc_state_c->gs_stack_bottom -
+	/*len = (uintptr_t)(void *)gc_state_c->gs_stack_bottom -
 	    (uintptr_t)GC_ALIGN(&len);
-	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(&len), len);
+	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(&len), len);*/
+	gc_state_c->gs_stack = gc_vm_get_stack(&gc_state_c->gs_vt);
+	gc_debug("set stack to %s\n", gc_cap_str(gc_state_c->gs_stack));
 	c16 = gc_state_c->gs_regs_c;
 	__asm__ __volatile__ (
 		"cmove $c16, %0" : : "C"(c16) : "memory", "$c16"
@@ -634,10 +639,15 @@ gc_malloc(size_t sz)
 	size_t len; /* XXX: first var */
 	_gc_cap void *c3;
 	_gc_cap void *c16;
+	void *fp;
 
-	len = (uintptr_t)gc_state_c->gs_stack_bottom -
-	    (uintptr_t)GC_ALIGN(&len);
-	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(&len), len);
+	fp = __builtin_frame_address(0);
+
+	/*len = (uintptr_t)gc_state_c->gs_stack_bottom -
+	    (uintptr_t)GC_ALIGN(fp);
+	gc_state_c->gs_stack = gc_cheri_ptr(GC_ALIGN(fp), len);*/
+	gc_state_c->gs_stack = gc_vm_get_stack(&gc_state_c->gs_vt);
+	gc_debug("set stack to %s\n", gc_cap_str(gc_state_c->gs_stack));
 	c16 = gc_state_c->gs_regs_c;
 	__asm__ __volatile__ (
 		"cmove $c16, %0" : : "C"(c16) : "memory", "$c16"
@@ -740,6 +750,7 @@ retry:
 			gc_debug("first free block: %s", gc_cap_str(blk));
 			blk->bk_objsz = roundsz;
 			blk->bk_marks = 0;
+			blk->bk_revoked = 0;
 			blk->bk_free = ((1ULL << (GC_PAGESZ / roundsz)) - 1ULL);
 			/*
 			 * Account for the space taken up by the block
@@ -788,11 +799,38 @@ gc_free(_gc_cap void *ptr)
 	gc_error("unimplemented: gc_free");
 }
 
-void
+int
 gc_revoke(_gc_cap void *ptr)
 {
+	int rc;
+	_gc_cap struct gc_btbl *bt;
+	_gc_cap void *obj;
+	size_t bidx;
+	_gc_cap struct gc_blk *blk;
+	size_t sidx;
+	int i, j;
+	uint8_t type;
 
-	gc_error("unimplemented: gc_revoke");
+	rc = gc_get_obj(ptr,
+	    gc_cheri_ptr(&obj, sizeof(obj)),
+	    gc_cheri_ptr(&bt, sizeof(bt)),
+	    gc_cheri_ptr(&bidx, sizeof(bidx)),
+	    gc_cheri_ptr(&blk, sizeof(blk)),
+	    gc_cheri_ptr(&sidx, sizeof(sidx)));
+	if (gc_ty_is_unmanaged(rc))
+		return (rc);
+
+	if (bt->bt_flags & GC_BTBL_FLAG_SMALL) {
+		blk->bk_revoked |= 1ULL << sidx;
+	} else {
+		i = GC_BTBL_MAPINDX(bidx);
+		j = GC_BTBL_BYTINDX(bidx);
+		type = GC_BTBL_GETTYPE(bt->bt_map[i], j);
+		type = gc_ty_set_revoked(type);
+		GC_BTBL_SETTYPE(bt->bt_map[i], j, type);
+	}
+
+	return (rc);
 }
 
 void
@@ -831,8 +869,8 @@ gc_get_obj_big(_gc_cap void *ptr,
 
 	gc_debug("gc_get_obj_big: indx is %zu\n", indx);
 
-	base = (char *)gc_cheri_getbase(bt->bt_base) + indx * GC_BIGSZ;
-	len = GC_BIGSZ;
+	base = (char *)gc_cheri_getbase(bt->bt_base) + indx * bt->bt_slotsz;
+	len = bt->bt_slotsz;
 	if (gc_ty_is_free(type)) {
 		*out_ptr = gc_cheri_ptr(base, len);
 		return (type);
@@ -846,7 +884,7 @@ gc_get_obj_big(_gc_cap void *ptr,
 			    j < 2; j++) {
 				jtype = GC_BTBL_GETTYPE(byte, j);
 				if (gc_ty_is_cont(jtype))
-					len += GC_BIGSZ;
+					len += bt->bt_slotsz;
 				else {
 					*out_ptr =
 					    gc_cheri_ptr(base, len);
@@ -894,6 +932,9 @@ gc_get_obj_small(_gc_cap void *ptr,
 	if (gc_ty_is_free(rc)) {
 		return (rc); 
 	} else if (gc_ty_is_used(rc)) {
+		if (((blk->bk_revoked >> indx) & 1) != 0)
+			rc = gc_ty_set_revoked(rc);
+
 		if (((blk->bk_free >> indx) & 1) != 0)
 			return (gc_ty_set_free(rc));
 		if (((blk->bk_marks >> indx) & 1) != 0)

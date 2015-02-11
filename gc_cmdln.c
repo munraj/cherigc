@@ -104,6 +104,7 @@ gc_cmd_info(struct gc_cmd *cmd, char **arg)
 	_gc_cap struct gc_blk *bk;
 	size_t bk_idx;
 	size_t pg_idx;
+	_gc_cap struct gc_vm_ent *ve;
 
 	if (arg[1] == NULL)
 	{
@@ -123,8 +124,29 @@ gc_cmd_info(struct gc_cmd *cmd, char **arg)
 
 	if (gc_ty_is_unmanaged(rc)) {
 		printf("Object is unmanaged.\n");
-		return (0);
-	} else if (gc_ty_is_revoked(rc))
+		/* Try finding in VM mappings. */
+		ve = gc_vm_tbl_find(&gc_state_c->gs_vt, (uint64_t)GC_ALIGN(addr));
+		if (ve == NULL) {
+			printf("No VM table entry.\n");
+			return (0);
+		} else {
+			printf("Found VM entry: " GC_DEBUG_VE_FMT "\n", GC_DEBUG_VE_PRI(ve));
+			bt = ve->ve_bt;
+			rc = gc_get_obj_bt(raw_obj, bt,
+			    gc_cap_addr(&obj),
+			    gc_cheri_ptr(&bt_idx, sizeof(bt_idx)),
+			    gc_cap_addr(&bk),
+			    gc_cheri_ptr(&bk_idx, sizeof(bk_idx)));
+
+			if (gc_ty_is_unmanaged(rc)) {
+				/* Impossible? */
+				printf("No index found in VM block table.\n");
+				return (0);
+			}
+		}
+	}
+
+	if (gc_ty_is_revoked(rc))
 		printf("Object is revoked.\n");
 	else if (gc_ty_is_used(rc))
 		printf("Object is allocated.\n");
@@ -138,14 +160,27 @@ gc_cmd_info(struct gc_cmd *cmd, char **arg)
 	printf("Returned object: %s\n", gc_cap_str(obj));
 	printf("Block table: %s, ", gc_cap_str(bt));
 	printf("base: %s, slot size %zu, index: %zu\n", gc_cap_str(bt->bt_base), bt->bt_slotsz, bt_idx);
-	if (bt->bt_flags & GC_BTBL_FLAG_SMALL)
-		printf("Block: %s, index: %zu\n", gc_cap_str(bk), bk_idx);
-
 	pg_idx = GC_SLOT_IDX_TO_PAGE_IDX(bt, bt_idx);
 	printf("Stored tags: hi=0x%" PRIx64 ", lo=0x%" PRIx64 ", v=%d\n",
 		bt->bt_tags[pg_idx].tg_hi,
 		bt->bt_tags[pg_idx].tg_lo,
 		bt->bt_tags[pg_idx].tg_v);
+
+	if (bt->bt_flags & GC_BTBL_FLAG_SMALL) {
+		printf("Block: %s, index: %zu\n", gc_cap_str(bk), bk_idx);
+		if (bk_idx == 0) {
+			/* Block header; print block info. */
+			printf("Block header information:\n"
+			    "  Object size: %zu bytes\n"
+			    "  Mark bits: 0x%" PRIx64 "\n"
+			    "  Free bits: 0x%" PRIx64 "\n"
+			    "  Revoked bits: 0x%" PRIx64 "\n",
+			    bk->bk_objsz,
+			    bk->bk_marks,
+			    bk->bk_free,
+			    bk->bk_revoked);
+		}
+	}
 
 	return (0);
 }

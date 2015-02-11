@@ -40,6 +40,7 @@ gc_get_stack_bottom(void)
 	}
 	/* XXX: Length? */
 	ret = (_gc_cap void *)p;
+	ret = cheri_setlen(ret, 100);
 	gc_debug("found bottom of stack: %s", gc_cap_str(ret));
 	return (ret);
 }

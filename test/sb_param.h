@@ -5,6 +5,7 @@ struct sb_param
 {
 	struct cheri_object	sp_gc;	/* garbage collector object */
 	int			sp_op;	/* operation */
+	__capability void *__capability *sp_cap1;	/* place in which to store a cap */
 };
 
 #define	OP_INIT		0

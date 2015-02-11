@@ -93,6 +93,7 @@ _cheri_gc_alloc_c(__capability void * __capability *out_ptr, size_t sz)
 
 	/* Forward to GC. */
 	*out_ptr = gc_malloc(sz);
+	printf("_cheri_gc_alloc_c: returning 0\n");
 	return (0);
 }
 

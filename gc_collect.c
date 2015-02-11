@@ -1,3 +1,5 @@
+#include <inttypes.h>
+
 #include "gc.h"
 #include "gc_cheri.h"
 #include "gc_collect.h"
@@ -340,6 +342,8 @@ gc_mark_children(_gc_cap void *obj,
 	_gc_cap struct gc_vm_tbl *vt;
 	int unmanaged;
 
+	gc_debug("gc_mark_children: scanning object %s\n", gc_cap_str(obj));
+
 	/*
 	 * Mark children of object.
 	 *
@@ -408,8 +412,7 @@ gc_mark_children(_gc_cap void *obj,
 			tags = gc_get_or_update_tags(btbl, page_idx);
 		else {
 			ve = gc_vm_tbl_find(vt, (uint64_t)(void *)page);
-			/* assert(ve != NULL); */ /* guaranteed by caller */
-			if (ve->ve_prot & GC_VE_PROT_RD)
+			if (ve != NULL && (ve->ve_prot & GC_VE_PROT_RD))
 				tags = gc_get_page_tags(page);
 			else {
 				gc_debug("warning: not allowed to read page 0x%llx", (uint64_t)(void *)page);

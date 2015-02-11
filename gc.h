@@ -21,6 +21,7 @@ struct gc_blk {
 	size_t			 bk_objsz;	/* size of objects stored */
 	uint64_t		 bk_marks;	/* mark bits for each object */
 	uint64_t		 bk_free;	/* free bits for each object */
+	uint64_t		 bk_revoked;	/* revoked flag for each object */
 };
 
 /*
@@ -79,7 +80,6 @@ struct gc_blk {
  * 0b0011: slot used, marked
  * 0bx1xx: as above, but with revoke flag set
  * 0b1111: object not managed by GC
- *
  *
  */
 struct gc_btbl {
@@ -315,7 +315,7 @@ void		 gc_free(_gc_cap void *_p);
  * This requires finding all outstanding references and invalidating
  * them before returning the object to the memory pool.
  */
-void		 gc_revoke(_gc_cap void *_p);
+int		 gc_revoke(_gc_cap void *_p);
 /*
  * Eventually re-use the given capability.
  * This returns the capability to the memory pool only when the last

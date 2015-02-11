@@ -64,4 +64,7 @@ int	gc_vm_tbl_new_bt(_gc_cap struct gc_vm_tbl *_vt,
 	    _gc_cap struct gc_vm_ent *_ve);
 int	gc_vm_tbl_bt_match(_gc_cap struct gc_vm_ent *_ve);
 
+/* Returns a capability to the stack (heuristically, currently). */
+_gc_cap void	*gc_vm_get_stack(_gc_cap struct gc_vm_tbl *_vt);
+
 #endif /* !_GC_VM_H_ */

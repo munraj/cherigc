@@ -207,3 +207,16 @@ _gc_cap struct gc_vm_ent
 
 	return (NULL);
 }
+
+_gc_cap void *
+gc_vm_get_stack(_gc_cap struct gc_vm_tbl *vt)
+{
+	_gc_cap void *p;
+	_gc_cap struct gc_vm_ent *ve;
+
+	/* Heuristic; just return last entry. */
+	ve = &vt->vt_ent[vt->vt_nent - 1];
+	p = cheri_ptr((void *)ve->ve_start, ve->ve_end - ve->ve_start);
+
+	return (p);
+}
